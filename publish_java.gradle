@@ -1,0 +1,96 @@
+apply plugin: 'maven'
+apply plugin: 'maven-publish'
+apply plugin: 'com.jfrog.bintray'
+
+ext {
+    bintrayRepo = 'gradle-plugins'
+    bintrayName = 'debugHelper'
+
+    publishedGroupId = 'com.ydq.android.gradle.build.tool'
+    libraryName = 'debughelper'
+    artifact = 'debughelper'
+
+    libraryDescription = 'A gradle plugin help to debug android lib module include native code.'
+
+    siteUrl = 'https://github.com/howardpang/androiddebughelper'
+    gitUrl = 'https://github.com/howardpang/androiddebughelper'
+
+    libraryVersion = '1.0.0'
+
+    developerId = 'howard'
+    developerName = 'Howard Pang'
+    developerEmail = 'howard_pang@outlook.com'
+
+    licenseName = 'The Apache Software License, Version 2.0'
+    licenseUrl = 'http://www.apache.org/licenses/LICENSE-2.0.txt'
+    allLicenses = ["Apache-2.0"]
+}
+
+group = 'com.ydq.android.gradle.build.tool'
+
+task srcJar(type: Jar) {
+    classifier 'sources'
+    from new File("${rootDir}/buildSrc/src")
+}
+
+publishing {
+    publications {
+        mavenJar(MavenPublication) {
+
+            File jar = new File(projectDir, "buildSrc/build/libs/buildSrc.jar")
+            artifact jar
+            artifact srcJar
+            artifactId "debughelper"
+            groupId publishedGroupId
+
+            pom.withXml {
+                def root = asNode()
+                root.appendNode('name', 'Native bundle')
+                root.appendNode('url', gitUrl)
+                root.appendNode('description', libraryDescription)
+
+                def scm = root.appendNode('scm')
+                scm.appendNode('url', gitUrl)
+                scm.appendNode('connection', 'scm:git:git://github.com/howardpang/androiddebughelper.git')
+
+                def license = root.appendNode('licenses').appendNode('license')
+                license.appendNode('name', licenseName)
+                license.appendNode('url', licenseUrl)
+                license.appendNode('distribution', 'lib')
+
+                def developers = root.appendNode('developers')
+                def nabil = developers.appendNode('developer')
+                nabil.appendNode('id', developerId)
+                nabil.appendNode('name', developerName)
+                nabil.appendNode('email', developerEmail)
+            }
+        }
+    }
+}
+
+
+Properties properties = new Properties()
+properties.load(project.rootProject.file('local.properties').newDataInputStream())
+
+bintray {
+    user = properties.getProperty("bintray.user")
+    key = properties.getProperty("bintray.apikey")
+    publications = ['mavenJar']
+    pkg {
+        repo = bintrayRepo
+        name = bintrayName
+        desc = libraryDescription
+        websiteUrl = siteUrl
+        vcsUrl = gitUrl
+        licenses = allLicenses
+        dryRun = false
+        publish = true
+        publicDownloadNumbers = true
+        version {
+            desc = libraryDescription
+        }
+    }
+}
+
+bintrayUpload.dependsOn 'generatePomFileForMavenJarPublication'
+bintrayUpload.dependsOn srcJar
