@@ -25,6 +25,7 @@ import org.gradle.process.ExecResult
 import org.gradle.process.internal.DefaultExecAction
 import org.gradle.internal.file.PathToFileResolver
 import org.gradle.internal.Factory
+import org.apache.tools.ant.taskdefs.condition.Os
 
 class DebugHelper implements Plugin<DefaultSettings> {
 
@@ -367,9 +368,13 @@ include \$(BUILD_SHARED_LIBRARY)
             File aapt
             if (sdkDir != null) {
                 File buildTools = new File(sdkDir, "build-tools")
+                String aaptName = "aapt"
+                if (Os.isFamily(Os.FAMILY_WINDOWS)) {
+                    aaptName = "aapt.exe"
+                }
                 if (buildTools.exists()) {
                     buildTools.listFiles().find {
-                        aapt = new File(it, "aapt.exe")
+                        aapt = new File(it, aaptName)
                         if (aapt.exists()) {
                             return true
                         }
@@ -428,10 +433,10 @@ include \$(BUILD_SHARED_LIBRARY)
                         mHostPackageName = packageName
                         mHostLaunchActivity = launchActivity
                     } else {
-                        println("run aapt.exe cmd failure " + mHostApk)
+                        println("run aapt cmd failure " + mHostApk)
                     }
                 } else {
-                    println("can't find aapt.exe in " + sdkDir)
+                    println("can't find aapt in " + sdkDir)
                 }
             }
         }
