@@ -54,9 +54,7 @@ class DebugHelper implements Plugin<DefaultSettings> {
 
             String dummyHostName = "dummyHost"
             mDummyHostDir = new File(settings.rootDir, ".idea/${dummyHostName}")
-            if (!mDummyHostDir.exists()) {
-                getHostInfo()
-            }
+            getHostInfo()
             if (mHostPackageName == null) {
                 return
             }
@@ -65,22 +63,25 @@ class DebugHelper implements Plugin<DefaultSettings> {
             println("host apk: " + mHostApk)
             println("host flavor: " + mHostFlavor)
             println("host launch activity: " + mHostLaunchActivity)
-            List hostDependencies
-            if (mHostApk != null) {
-                hostDependencies = []
-                settings.rootProject.children.each { p ->
-                    p.buildFile.find {
-                        if (it == "apply plugin: 'com.android.library'") {
-                            hostDependencies.add(p.name)
-                            return true
-                        } else if (it == "apply plugin: 'com.android.application'") {
-                            return true
+
+            if (!mDummyHostDir.exists()) {
+                List hostDependencies
+                if (mHostApk != null) {
+                    hostDependencies = []
+                    settings.rootProject.children.each { p ->
+                        p.buildFile.find {
+                            if (it == "apply plugin: 'com.android.library'") {
+                                hostDependencies.add(p.name)
+                                return true
+                            } else if (it == "apply plugin: 'com.android.application'") {
+                                return true
+                            }
                         }
                     }
                 }
-            }
 
-            createDummyHost(mDummyHostDir, mHostPackageName, mHostFlavor, hostDependencies, mHostLaunchActivity)
+                createDummyHost(mDummyHostDir, mHostPackageName, mHostFlavor, hostDependencies, mHostLaunchActivity)
+            }
             settings.include(":${dummyHostName}")
             settings.project(":${dummyHostName}").projectDir = mDummyHostDir
             boolean hookExternalBuild = true
@@ -92,6 +93,15 @@ class DebugHelper implements Plugin<DefaultSettings> {
                 settings.gradle.beforeProject { p ->
                     if (p.name == dummyHostName && mHostApk != null) {
                         hookDummyHost(p)
+                    } else if (p.name == settings.rootProject.name) {
+                        p.task("cleanDummyHost") {
+                            group = "clean"
+                            doLast {
+                                File ideaDir = new File(settings.rootDir, ".idea")
+                                ideaDir.deleteDir()
+                            }
+                        }
+
                     } else {
                         hookDependenciesProject(p)
                     }
@@ -266,11 +276,11 @@ android {
         if (flavor != null) {
             pw.println("""
     productFlavors {
-            flavorDimensions 'default'
-            ${flavor} {
-                dimension 'default'
-            }
+        flavorDimensions 'default'
+        ${flavor} {
+            dimension 'default'
         }
+    }
 """)
         }
         pw.println("""
@@ -333,6 +343,23 @@ include \$(BUILD_SHARED_LIBRARY)
     }
 
     private void getHostInfo() {
+        if (mHostPackageName != null && mHostLaunchActivity != null) {
+            return
+        }
+        if (mDummyHostDir.exists()) {
+            try {
+                File manifest = new File(mDummyHostDir, "AndroidManifest.xml")
+                def manifestParser = new XmlParser(false, false).parse(manifest)
+                mHostPackageName = manifestParser.@package
+                mHostLaunchActivity = manifestParser.application.activity[0].@'android:name'
+            }
+            catch (Exception e) {
+
+            }
+            if (mHostPackageName != null && mHostLaunchActivity != null) {
+                return
+            }
+        }
         if (mHostApk != null) {
             Properties properties = new Properties()
             properties.load(new File(settings.rootDir, 'local.properties').newDataInputStream())
@@ -357,7 +384,7 @@ include \$(BUILD_SHARED_LIBRARY)
                     def stdout = new ByteArrayOutputStream()
                     execAction.standardOutput = stdout
                     execAction.errorOutput = stdout
-                    execAction.commandLine( aapt.path,"dump", "badging", mHostApk)
+                    execAction.commandLine(aapt.path, "dump", "badging", mHostApk)
                     ExecResult result = execAction.execute()
                     if (result.exitValue == 0) {
                         List<String> apkInfo = stdout.toString().readLines()
@@ -375,36 +402,36 @@ include \$(BUILD_SHARED_LIBRARY)
                                 if (line.startsWith(prefix)) {
                                     packageName = line.substring(prefix.length(), line.indexOf("'", prefix.length()))
                                 }
-                            }else if (sdkVersion == null) {
+                            } else if (sdkVersion == null) {
                                 String prefix = "sdkVersion:'"
                                 if (line.startsWith(prefix)) {
                                     sdkVersion = line.substring(prefix.length(), line.indexOf("'", prefix.length()))
                                 }
-                            }else if (targetSdkVersion == null) {
+                            } else if (targetSdkVersion == null) {
                                 String prefix = "targetSdkVersion:'"
                                 if (line.startsWith(prefix)) {
                                     targetSdkVersion = line.substring(prefix.length(), line.indexOf("'", prefix.length()))
                                 }
-                            }else if (launchActivity == null) {
+                            } else if (launchActivity == null) {
                                 String prefix = "launchable-activity: name='"
                                 if (line.startsWith(prefix)) {
                                     launchActivity = line.substring(prefix.length(), line.indexOf("'", prefix.length()))
                                 }
-                            }else if (nativeCode == null) {
+                            } else if (nativeCode == null) {
                                 String prefix = "native-code: '"
                                 if (line.startsWith(prefix)) {
                                     nativeCode = line.substring(prefix.length(), line.indexOf("'", prefix.length()))
                                 }
                             }
                         }
-                        println("extract host info from apk : ${packageName} >> ${launchActivity} >> ${sdkVersion} >> ${targetSdkVersion} >> ${nativeCode}" )
+                        println("extract host info from apk : ${packageName} >> ${launchActivity} >> ${sdkVersion} >> ${targetSdkVersion} >> ${nativeCode}")
                         mHostPackageName = packageName
                         mHostLaunchActivity = launchActivity
                     } else {
-                        println("run aapt.exe cmd failure " + mHostApk )
+                        println("run aapt.exe cmd failure " + mHostApk)
                     }
-                }else {
-                    println("can't find aapt.exe in " + sdkDir )
+                } else {
+                    println("can't find aapt.exe in " + sdkDir)
                 }
             }
         }
