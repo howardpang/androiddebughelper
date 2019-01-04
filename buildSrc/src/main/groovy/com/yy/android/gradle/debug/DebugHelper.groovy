@@ -23,8 +23,7 @@ import org.gradle.api.tasks.bundling.Jar
 import org.gradle.initialization.DefaultSettings
 import org.gradle.process.ExecResult
 import org.gradle.process.internal.DefaultExecAction
-import org.gradle.internal.file.PathToFileResolver
-import org.gradle.internal.Factory
+import org.gradle.process.internal.DefaultExecActionFactory
 import org.apache.tools.ant.taskdefs.condition.Os
 
 class DebugHelper implements Plugin<DefaultSettings> {
@@ -384,7 +383,7 @@ include \$(BUILD_SHARED_LIBRARY)
 
             if (mHostPackageName == null || mHostLaunchActivity == null) {
                 if (aapt != null && aapt.exists()) {
-                    DefaultExecAction execAction = new DefaultExecAction(new MyPathToFileResolver())
+                    DefaultExecAction execAction = new DefaultExecActionFactory(settings.fileResolver).newExecAction()
                     execAction.setIgnoreExitValue(true)
                     def stdout = new ByteArrayOutputStream()
                     execAction.standardOutput = stdout
@@ -439,28 +438,6 @@ include \$(BUILD_SHARED_LIBRARY)
                     println("can't find aapt in " + sdkDir)
                 }
             }
-        }
-    }
-
-    private class MyPathToFileResolver implements PathToFileResolver {
-        @Override
-        File resolve(Object path) {
-            return null
-        }
-
-        @Override
-        Factory<File> resolveLater(Object path) {
-            return new Factory<File>() {
-                @Override
-                File create() {
-                    return settings.rootDir
-                }
-            }
-        }
-
-        @Override
-        PathToFileResolver newResolver(File baseDir) {
-            return null
         }
     }
 }
