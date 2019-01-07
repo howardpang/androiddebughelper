@@ -53,7 +53,7 @@ class DebugHelper implements Plugin<DefaultSettings> {
             }
 
             String dummyHostName = "dummyHost"
-            mDummyHostDir = new File(settings.rootDir, ".idea/${dummyHostName}")
+            mDummyHostDir = new File(settings.rootDir, "${dummyHostName}")
             getHostInfo()
             if (mHostPackageName == null) {
                 return
@@ -99,6 +99,7 @@ class DebugHelper implements Plugin<DefaultSettings> {
                             doLast {
                                 File ideaDir = new File(settings.rootDir, ".idea")
                                 ideaDir.deleteDir()
+                                mDummyHostDir.deleteDir()
                             }
                         }
 
@@ -124,7 +125,7 @@ class DebugHelper implements Plugin<DefaultSettings> {
                         destinationDir dummyApk.parentFile
                     }
                     packageApplication.finalizedBy reassembleHostTask
-                    reassembleHostTask.doFirst {
+                    packageApplication.doLast {
                         if (!unzipHostApk.exists()) {
                             p.copy {
                                 from project.zipTree(mHostApk)
@@ -151,7 +152,7 @@ class DebugHelper implements Plugin<DefaultSettings> {
                     }
                     reassembleHostTask.doLast {
                         File srcPath = new File(dummyApk.parentFile, "${unzipHostApk.name}_unsign.apk")
-                        File dstPath = dummyApk
+                        File dstPath = new File(dummyApk.parentFile, "${unzipHostApk.name}_sign.apk")
                         String keyStore = packageApplication.signingConfig.storeFile.path
                         String storePass = packageApplication.signingConfig.storePassword
                         String alias = packageApplication.signingConfig.keyAlias
@@ -161,6 +162,20 @@ class DebugHelper implements Plugin<DefaultSettings> {
                             args "-keystore", keyStore, "-storepass", storePass, "-signedjar", dstPath, srcPath, alias
                         }
                     }
+
+                    Task renameHostTask = p.task("updateDummyHostApk") {
+                        doLast {
+                            File srcPath = new File(dummyApk.parentFile, "${unzipHostApk.name}_sign.apk")
+                            File dstPath = dummyApk
+                            project.copy {
+                                from srcPath
+                                into dstPath.parentFile
+                                rename srcPath.name, dstPath.name
+                            }
+                        }
+                    }
+
+                    reassembleHostTask.finalizedBy renameHostTask
                 }
             }
         }
@@ -253,11 +268,6 @@ android {
             }
         }
     } 
-    sourceSets {
-        main {
-            manifest.srcFile "\${projectDir}/AndroidManifest.xml"
-        }
-    }
     
     /*
     externalNativeBuild {
@@ -299,8 +309,11 @@ android {
         pw.flush()
         pw.close()
 
+        File srcMainDir = new File(dummyHostDir, "src/main")
+        if (!srcMainDir.exists())srcMainDir.mkdirs()
+
         // create AndroidManifest.xml
-        File manifest = new File(dummyHostDir, "AndroidManifest.xml")
+        File manifest = new File(srcMainDir, "AndroidManifest.xml")
         pw = new PrintWriter(manifest.newWriter(false))
         pw.print("""<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
@@ -321,6 +334,33 @@ android {
         pw.println( "</manifest>")
         pw.flush()
         pw.close()
+
+        if (launchActivity != null) {
+            int lastDotPos = launchActivity.lastIndexOf(".")
+            String launchActivityPackageName = launchActivity.substring(0, lastDotPos)
+            String launchActivityName = launchActivity.substring( lastDotPos + 1)
+            String launchActivityClassName = launchActivity.replace(".", "/")
+            File launchActivityClass = new File(srcMainDir, "java/${launchActivityClassName}.java")
+            if (!launchActivityClass.parentFile.exists()) launchActivityClass.parentFile.mkdirs()
+
+            pw = new PrintWriter(launchActivityClass.newWriter(false))
+            pw.print("""
+package ${launchActivityPackageName};
+
+import android.app.Activity;
+import android.os.Bundle;
+
+public class ${launchActivityName} extends Activity {
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+    }
+}
+""")
+            pw.flush()
+            pw.close()
+        }
 
 
         // create Android.mk
