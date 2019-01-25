@@ -18,8 +18,6 @@ package com.yy.android.gradle.debug
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.api.Task
-import org.gradle.api.file.FileTree
-import org.gradle.api.tasks.bundling.Jar
 import org.gradle.initialization.DefaultSettings
 import org.gradle.process.ExecResult
 import org.gradle.process.internal.DefaultExecAction
@@ -27,14 +25,15 @@ import org.gradle.process.internal.DefaultExecActionFactory
 import org.apache.tools.ant.taskdefs.condition.Os
 
 class DebugHelper implements Plugin<DefaultSettings> {
-
     protected DefaultSettings settings
     private File mDummyHostDir
-
     private String mHostPackageName
     private String mHostLaunchActivity
     private String mHostApk
     private String mHostFlavor
+    private String mMinSdk = "23"
+    private String mTargetSdk = "24"
+    private boolean mUpdateJavaClass = true
 
     void apply(DefaultSettings settings) {
         this.settings = settings
@@ -51,6 +50,9 @@ class DebugHelper implements Plugin<DefaultSettings> {
             if (settings.hasProperty("hostFlavor")) {
                 mHostFlavor = settings.hostFlavor
             }
+            if (settings.hasProperty("updateJavaClass")) {
+                mUpdateJavaClass = settings.updateJavaClass
+            }
 
             String dummyHostName = "dummyHost"
             mDummyHostDir = new File(settings.rootDir, "${dummyHostName}")
@@ -63,6 +65,7 @@ class DebugHelper implements Plugin<DefaultSettings> {
             println("host apk: " + mHostApk)
             println("host flavor: " + mHostFlavor)
             println("host launch activity: " + mHostLaunchActivity)
+            println("update java class: " + mUpdateJavaClass)
 
             if (!mDummyHostDir.exists()) {
                 List hostDependencies
@@ -80,7 +83,7 @@ class DebugHelper implements Plugin<DefaultSettings> {
                     }
                 }
 
-                createDummyHost(mDummyHostDir, mHostPackageName, mHostFlavor, hostDependencies, mHostLaunchActivity)
+                createDummyHost(mDummyHostDir, mHostPackageName, mHostFlavor, hostDependencies, mHostLaunchActivity, mMinSdk, mTargetSdk)
             }
             settings.include(":${dummyHostName}")
             settings.project(":${dummyHostName}").projectDir = mDummyHostDir
@@ -90,10 +93,17 @@ class DebugHelper implements Plugin<DefaultSettings> {
             }
             println("hookExternalBuild: " + hookExternalBuild)
             if (hookExternalBuild) {
+
                 settings.gradle.beforeProject { p ->
                     if (p.name == dummyHostName && mHostApk != null) {
                         hookDummyHost(p)
                     } else if (p.name == settings.rootProject.name) {
+                        /**
+                         * Note, there are two classloader context when hook project, for example 'com.android.tools.build:gradle:3.0.1' dependency
+                         * will be loaded in setting classloader and rootProject classloader, the class with same name is different in these two classloader,
+                         * so there are some job  can't hook in here, we should create other plugin to do
+                         */
+                        p.buildscript.dependencies.add("classpath", "${BuildConfig.GROUP}:${BuildConfig.NAME}:${BuildConfig.VERSION}")
                         p.task("cleanDummyHost") {
                             group = "clean"
                             doLast {
@@ -113,71 +123,8 @@ class DebugHelper implements Plugin<DefaultSettings> {
 
     private void hookDummyHost(Project p) {
         p.afterEvaluate {
-            def variants = p.android.applicationVariants
-            variants.whenObjectAdded { variant ->
-                if (variant.buildType.name == "debug") {
-                    File unzipHostApk = new File(p.buildDir, "hostApk")
-                    File dummyApk = variant.outputs[0].outputFile
-                    Task packageApplication = variant.packageApplication
-                    Task reassembleHostTask = p.task("reAssembleHost", type: Jar) {
-                        from unzipHostApk
-                        archiveName "${unzipHostApk.name}_unsign.apk"
-                        destinationDir dummyApk.parentFile
-                    }
-                    packageApplication.finalizedBy reassembleHostTask
-                    packageApplication.doLast {
-                        if (!unzipHostApk.exists()) {
-                            p.copy {
-                                from project.zipTree(mHostApk)
-                                into unzipHostApk
-                                exclude "**/META-INF/**"
-                                includeEmptyDirs = false
-                            }
-                        }
-                        FileTree dummyHostNativeLibs = p.fileTree("${p.buildDir}/intermediates/transforms/mergeJniLibs").include("**/*.so")
-                        File hostNativeLibsDir = new File(unzipHostApk, "lib")
-                        dummyHostNativeLibs.each { so ->
-                            File hostNativeLibsABI = new File(hostNativeLibsDir, so.parentFile.name)
-                            if (hostNativeLibsABI.exists()) {
-                                File hostNativeLib = new File(hostNativeLibsABI, so.name)
-                                if (hostNativeLib.exists()) {
-                                    println(" update so: " + so + " >> " + hostNativeLibsABI)
-                                    p.copy {
-                                        from so
-                                        into hostNativeLibsABI
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    reassembleHostTask.doLast {
-                        File srcPath = new File(dummyApk.parentFile, "${unzipHostApk.name}_unsign.apk")
-                        File dstPath = new File(dummyApk.parentFile, "${unzipHostApk.name}_sign.apk")
-                        String keyStore = packageApplication.signingConfig.storeFile.path
-                        String storePass = packageApplication.signingConfig.storePassword
-                        String alias = packageApplication.signingConfig.keyAlias
-                        println "Sign apk, storeFile: " + keyStore + " storePass:" + storePass + " alias:" + alias + " source path: " + srcPath + ", destination path: " + dstPath
-                        project.exec {
-                            executable "jarsigner"
-                            args "-keystore", keyStore, "-storepass", storePass, "-signedjar", dstPath, srcPath, alias
-                        }
-                    }
-
-                    Task renameHostTask = p.task("updateDummyHostApk") {
-                        doLast {
-                            File srcPath = new File(dummyApk.parentFile, "${unzipHostApk.name}_sign.apk")
-                            File dstPath = dummyApk
-                            project.copy {
-                                from srcPath
-                                into dstPath.parentFile
-                                rename srcPath.name, dstPath.name
-                            }
-                        }
-                    }
-
-                    reassembleHostTask.finalizedBy renameHostTask
-                }
-            }
+            p.fastDebug.hostApk = mHostApk
+            p.fastDebug.updateJavaClass = (mUpdateJavaClass && mHostApk != null)
         }
     }
 
@@ -243,7 +190,7 @@ class DebugHelper implements Plugin<DefaultSettings> {
         }
     }
 
-    void createDummyHost(File dummyHostDir, String hostPackageName, String flavor, List dependencies, String launchActivity) {
+    void createDummyHost(File dummyHostDir, String hostPackageName, String flavor, List dependencies, String launchActivity, String minSdk, String targetSdk) {
         if (dummyHostDir.exists()) {
             return
         }else {
@@ -254,12 +201,13 @@ class DebugHelper implements Plugin<DefaultSettings> {
         File buildGradle = new File(dummyHostDir, "build.gradle")
         def pw = new PrintWriter(buildGradle.newWriter(false))
         pw.print("""apply plugin: 'com.android.application'
+apply plugin: 'com.ydq.android.gradle.debug.HostPlugin'
 android { 
-    compileSdkVersion 24 
+    compileSdkVersion ${targetSdk} 
     defaultConfig { 
         applicationId "${hostPackageName}" 
-        minSdkVersion 23 
-        targetSdkVersion 24 
+        minSdkVersion ${minSdk} 
+        targetSdkVersion ${targetSdk} 
         versionCode 1 
         versionName "1.0" 
         externalNativeBuild {
@@ -295,6 +243,7 @@ android {
         }
         pw.println("""
 }
+
 
 """)
 
@@ -388,13 +337,13 @@ include \$(BUILD_SHARED_LIBRARY)
         }
         if (mDummyHostDir.exists()) {
             try {
-                File manifest = new File(mDummyHostDir, "AndroidManifest.xml")
+                File manifest = new File(mDummyHostDir, "src/main/AndroidManifest.xml")
                 def manifestParser = new XmlParser(false, false).parse(manifest)
                 mHostPackageName = manifestParser.@package
                 mHostLaunchActivity = manifestParser.application.activity[0].@'android:name'
             }
             catch (Exception e) {
-
+                println("getHostInfo " + e.toString())
             }
             if (mHostPackageName != null && mHostLaunchActivity != null) {
                 return
@@ -471,6 +420,12 @@ include \$(BUILD_SHARED_LIBRARY)
                         println("extract host info from apk : ${packageName} >> ${launchActivity} >> ${sdkVersion} >> ${targetSdkVersion} >> ${nativeCode}")
                         mHostPackageName = packageName
                         mHostLaunchActivity = launchActivity
+                        if (sdkVersion != null) {
+                            mMinSdk = sdkVersion
+                        }
+                        if (targetSdkVersion != null) {
+                            mTargetSdk = targetSdkVersion
+                        }
                     } else {
                         println("run aapt cmd failure " + mHostApk)
                     }
