@@ -16,6 +16,7 @@
 package com.yy.android.gradle.debug
 
 import com.android.build.gradle.internal.api.ApplicationVariantImpl
+import com.android.build.gradle.internal.tasks.DexMergingTask
 import com.android.build.gradle.tasks.ProcessAndroidResources
 import com.android.build.gradle.internal.pipeline.TransformTask
 import org.gradle.BuildListener
@@ -30,6 +31,12 @@ import org.gradle.api.tasks.bundling.Jar
 import org.gradle.api.Task
 import org.gradle.api.file.FileTree
 
+import com.google.gson.GsonBuilder
+import com.google.gson.Gson
+import com.android.build.gradle.internal.cxx.json.PlainFileGsonTypeAdaptor
+import com.android.build.gradle.internal.dsl.SigningConfig
+import org.gradle.util.VersionNumber
+
 class HostPlugin implements Plugin<Project> {
     private Project project
     private File unzipHostApk
@@ -38,15 +45,29 @@ class HostPlugin implements Plugin<Project> {
         this.project = project
         printTaskRuntime(project)
         project.extensions.create('fastDebug', HostExtension.class)
-        project.android.registerTransform(new HostCustomMultiDexTransform())
+        String curVersionString = Utils.androidGradleVersion()
+        if (curVersionString == null) {
+            return
+        }
+        VersionNumber currentVersion = VersionNumber.parse(curVersionString)
+        VersionNumber miniVersion = VersionNumber.parse("3.3.0")
         def variants = project.android.applicationVariants
         variants.whenObjectAdded { ApplicationVariantImpl variant ->
             if (variant.buildType.name == "debug") {
                 unzipHostApk = new File(project.buildDir, "hostApk")
                 File dummyApk = variant.outputs[0].outputFile
-                Task packageApplication = variant.packageApplication
-                packageApplication.enabled = false
-                variant.mergeResources.enabled = false
+                Task packageApplication
+                Task mergeResources
+                Task preBuild
+                if (currentVersion >= miniVersion ) {
+                    packageApplication = variant.packageApplicationProvider.get()
+                    mergeResources = variant.mergeResourcesProvider.get()
+                    preBuild = variant.preBuildProvider.get()
+                }else {
+                    packageApplication = variant.packageApplication
+                    mergeResources = variant.mergeResources
+                    preBuild = variant.preBuild
+                }
                 Task mergeJniLibsTask = project.tasks.withType(TransformTask.class).find {
                     it.transform.name == 'mergeJniLibs' && it.variantName == variant.name
                 }
@@ -54,15 +75,34 @@ class HostPlugin implements Plugin<Project> {
                 Task processAndroidResourcesTask = project.tasks.withType(ProcessAndroidResources.class).find {
                     it.variantName == variant.name
                 }
-                processAndroidResourcesTask.enabled = false
 
                 Task stripDebugSymbolTask = project.tasks.withType(TransformTask.class).find {
                     it.transform.name == 'stripDebugSymbol' && it.variantName == variant.name
                 }
 
-                stripDebugSymbolTask.enabled = false
+                Task dexBuilderTask = project.tasks.withType(TransformTask.class).find {
+                    it.transform.name == 'dexBuilder' && it.variantName == variant.name
+                }
 
-                Task preBuild = variant.preBuild
+                Task dexMergerTask = project.tasks.withType(TransformTask.class).find {
+                    it.transform.name == 'dexMerger' && it.variantName == variant.name
+                }
+
+                if (dexMergerTask == null) {
+                    dexMergerTask = project.tasks.withType(DexMergingTask.class).find {
+                        it.variantName == variant.name
+                    }
+                }
+
+                stripDebugSymbolTask.enabled = false
+                processAndroidResourcesTask.enabled = false
+                packageApplication.enabled = false
+                mergeResources.enabled = false
+                dexBuilderTask.enabled = false
+                if (dexMergerTask != null) {
+                    dexMergerTask.enabled = false
+                }
+
                 HostExtension fastDebug = project.fastDebug
                 if (fastDebug.hostApk == null || !(new File(fastDebug.hostApk).exists())) {
                     return
@@ -82,6 +122,18 @@ class HostPlugin implements Plugin<Project> {
                     archiveName "${unzipHostApk.name}_unsign.apk"
                     destinationDir dummyApk.parentFile
                 }
+
+                CustomDexTask customDexTask = project.task("customDex${variant.name.capitalize()}", type:CustomDexTask.class, { CustomDexTask dexTask->
+                    dexTask.classesDirs = []
+                    dexTask.outputDir = new File(project.buildDir, "intermediates/hostDexInfo/tmp")
+                    if (!dexTask.outputDir.exists())dexTask.outputDir.mkdirs()
+                    DependencyUtils.collectDependencyProjectClassesDirs(project, variant.name, dexTask.classesDirs)
+                    dexTask.configure(project, variant)
+                })
+                if (fastDebug.updateJavaClass) {
+                    reassembleHostTask.dependsOn customDexTask
+                }
+
                 packageApplication.finalizedBy reassembleHostTask
                 mergeJniLibsTask.doLast {
                     FileTree dummyHostNativeLibs = project.fileTree("${project.buildDir}/intermediates/transforms/mergeJniLibs").include("**/*.so")
@@ -103,9 +155,15 @@ class HostPlugin implements Plugin<Project> {
                 reassembleHostTask.doLast {
                     File srcPath = new File(dummyApk.parentFile, "${unzipHostApk.name}_unsign.apk")
                     File dstPath = new File(dummyApk.parentFile, "${unzipHostApk.name}_sign.apk")
-                    String keyStore = packageApplication.signingConfig.storeFile.path
-                    String storePass = packageApplication.signingConfig.storePassword
-                    String alias = packageApplication.signingConfig.keyAlias
+                    def signingConfig
+                    if (currentVersion >= miniVersion) {
+                        signingConfig = getSig(packageApplication.signingConfig.asFileTree.singleFile)
+                    }else {
+                        signingConfig = packageApplication.signingConfig
+                    }
+                    String keyStore = signingConfig.storeFile.path
+                    String storePass = signingConfig.storePassword
+                    String alias = signingConfig.keyAlias
                     println "Sign apk, storeFile: " + keyStore + " storePass:" + storePass + " alias:" + alias + " source path: " + srcPath + ", destination path: " + dstPath
                     project.exec {
                         executable "jarsigner"
@@ -196,5 +254,14 @@ class HostPlugin implements Plugin<Project> {
 
     void printTaskRuntime(Project prj) {
         prj.gradle.addListener(new BuildTimeListener())
+    }
+
+    SigningConfig getSig(File file) {
+        GsonBuilder gsonBuilder = new GsonBuilder()
+        gsonBuilder.registerTypeAdapter(File.class, new PlainFileGsonTypeAdaptor())
+        Gson gson = gsonBuilder.create()
+        file.withReader {
+            return gson.fromJson(it, SigningConfig.class)
+        }
     }
 }
