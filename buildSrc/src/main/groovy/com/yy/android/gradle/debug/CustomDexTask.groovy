@@ -99,13 +99,9 @@ class CustomDexTask extends DefaultTask implements Context {
             dexes.each {
                 DexInfo dexInfo = new DexInfo()
                 dexInfo.dstDex = it
-                if (it.name == "classes.dex") {
-                    dexInfo.srcDex = new File(dexesInfoDir, "classes0.dex")
-                } else {
-                    dexInfo.srcDex = new File(dexesInfoDir, "${it.name}")
-                }
                 dexInfo.classesToUpdateDir = new File(dexesInfoDir, it.name.substring(0, it.name.length() - 4))
                 if (!dexInfo.classesToUpdateDir.exists()) dexInfo.classesToUpdateDir.mkdirs()
+                project.delete(dexInfo.classesToUpdateDir.listFiles())
                 dexInfos.add(dexInfo)
                 File dexInfoFile = new File(dexesInfoDir, "${it.name}.info")
                 if (dexInfoFile.exists()) {
@@ -113,8 +109,8 @@ class CustomDexTask extends DefaultTask implements Context {
                         classesToUpdateInfo.find { k, v ->
                             File classFile = new File(k, "${className}.class")
                             File linkFile = new File(dexInfo.classesToUpdateDir, "${className}.class")
-                            if (classFile.exists()) {
-                                Set<File> files = v
+                            Set<File> files = v
+                            if (files.contains(classFile) && classFile.exists()) {
                                 files.remove(classFile)
                                 dexInfo.needUpdate = true
                                 if (!linkFile.parentFile.exists()) linkFile.parentFile.mkdirs()
@@ -135,8 +131,8 @@ class CustomDexTask extends DefaultTask implements Context {
                         classesToUpdateInfo.find { k, v ->
                             File classFile = new File(k, "${typeName}.class")
                             File linkFile = new File(dexInfo.classesToUpdateDir, "${typeName}.class")
-                            if (classFile.exists()) {
-                                Set<File> files = v
+                            Set<File> files = v
+                            if (files.contains(classFile) && classFile.exists()) {
                                 dexInfo.needUpdate = true
                                 files.remove(classFile)
                                 if (!linkFile.parentFile.exists()) linkFile.parentFile.mkdirs()
@@ -158,6 +154,7 @@ class CustomDexTask extends DefaultTask implements Context {
             dexInfo.srcDex = new File(dexesInfoDir, "classes.dex")
             dexInfo.classesToUpdateDir = new File(dexesInfoDir, "classes")
             dexInfos.add(dexInfo)
+            project.delete(dexInfo.classesToUpdateDir.listFiles())
         }
 
         // Copy remaining class to the main dex
@@ -189,12 +186,12 @@ class CustomDexTask extends DefaultTask implements Context {
                     // merge dex
                     FileTree dexesToUpdate = project.fileTree(dexOuputDir).include("**/*.dex")
                     Dex[] dexesToMerge = new Dex[dexesToUpdate.size() + 1]
-                    dexesToMerge[0] = new Dex(it.dstDex)
-                    int index = 1
+                    int index = 0
                     dexesToUpdate.each {
                         dexesToMerge[index] = new Dex(it)
                         index++
                     }
+                    dexesToMerge[index] = new Dex(it.dstDex)
                     DexMerger dexMerger =
                             new DexMerger(
                                     dexesToMerge,
