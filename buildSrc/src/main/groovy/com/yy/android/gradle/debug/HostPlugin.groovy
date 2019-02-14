@@ -27,14 +27,7 @@ import org.gradle.api.execution.TaskExecutionListener
 import org.gradle.api.initialization.Settings
 import org.gradle.api.invocation.Gradle
 import org.gradle.api.tasks.TaskState
-import org.gradle.api.tasks.bundling.Jar
 import org.gradle.api.Task
-import org.gradle.api.file.FileTree
-
-import com.google.gson.GsonBuilder
-import com.google.gson.Gson
-import com.android.build.gradle.internal.cxx.json.PlainFileGsonTypeAdaptor
-import com.android.build.gradle.internal.dsl.SigningConfig
 import org.gradle.util.VersionNumber
 
 class HostPlugin implements Plugin<Project> {
@@ -58,42 +51,34 @@ class HostPlugin implements Plugin<Project> {
                 File dummyApk = variant.outputs[0].outputFile
                 Task packageApplication
                 Task mergeResources
-                Task preBuild
+                int minSdkVersion = variant.variantData.scope.getMinSdkVersion().getFeatureLevel()
                 if (currentVersion >= miniVersion ) {
                     packageApplication = variant.packageApplicationProvider.get()
                     mergeResources = variant.mergeResourcesProvider.get()
-                    preBuild = variant.preBuildProvider.get()
                 }else {
                     packageApplication = variant.packageApplication
                     mergeResources = variant.mergeResources
-                    preBuild = variant.preBuild
                 }
                 Task mergeJniLibsTask = project.tasks.withType(TransformTask.class).find {
                     it.transform.name == 'mergeJniLibs' && it.variantName == variant.name
                 }
-
                 Task processAndroidResourcesTask = project.tasks.withType(ProcessAndroidResources.class).find {
                     it.variantName == variant.name
                 }
-
                 Task stripDebugSymbolTask = project.tasks.withType(TransformTask.class).find {
                     it.transform.name == 'stripDebugSymbol' && it.variantName == variant.name
                 }
-
                 Task dexBuilderTask = project.tasks.withType(TransformTask.class).find {
                     it.transform.name == 'dexBuilder' && it.variantName == variant.name
                 }
-
                 Task dexMergerTask = project.tasks.withType(TransformTask.class).find {
                     it.transform.name == 'dexMerger' && it.variantName == variant.name
                 }
-
                 if (dexMergerTask == null) {
                     dexMergerTask = project.tasks.withType(DexMergingTask.class).find {
                         it.variantName == variant.name
                     }
                 }
-
                 stripDebugSymbolTask.enabled = false
                 processAndroidResourcesTask.enabled = false
                 packageApplication.enabled = false
@@ -102,93 +87,52 @@ class HostPlugin implements Plugin<Project> {
                 if (dexMergerTask != null) {
                     dexMergerTask.enabled = false
                 }
-
                 HostExtension fastDebug = project.fastDebug
                 if (fastDebug.hostApk == null || !(new File(fastDebug.hostApk).exists())) {
                     return
                 }
-                preBuild.doFirst {
-                    if (!unzipHostApk.exists()) {
-                        project.copy {
-                            from project.zipTree(fastDebug.hostApk)
-                            into unzipHostApk
-                            exclude "**/META-INF/**"
-                            includeEmptyDirs = false
-                        }
-                    }
-                }
-                Task reassembleHostTask = project.task("reAssembleHost", type: Jar) {
-                    from unzipHostApk
-                    archiveName "${unzipHostApk.name}_unsign.apk"
-                    destinationDir dummyApk.parentFile
-                }
+                File hostFilesToUpdateDir = new File(project.buildDir, "intermediates/hostFilesToUpdate")
+                File hostDexToUpdateDir = new File(hostFilesToUpdateDir, "dex")
 
                 CustomDexTask customDexTask = project.task("customDex${variant.name.capitalize()}", type:CustomDexTask.class, { CustomDexTask dexTask->
                     dexTask.classesDirs = []
-                    dexTask.outputDir = new File(project.buildDir, "intermediates/hostDexInfo/tmp")
+                    dexTask.outputDir = hostDexToUpdateDir
                     if (!dexTask.outputDir.exists())dexTask.outputDir.mkdirs()
                     DependencyUtils.collectDependencyProjectClassesDirs(project, variant.name, dexTask.classesDirs)
                     dexTask.configure(project, variant)
                 })
+                ApkUpdateTask apkUpdateTask = project.task("apkUpdate${variant.name.capitalize()}", type:ApkUpdateTask.class, { ApkUpdateTask updateTask->
+                    updateTask.inputDirs = []
+                    updateTask.outputDir = new File(project.buildDir, "intermediates/hostFilesToUpdate/output")
+                    if (!updateTask.outputDir.exists())updateTask.outputDir.mkdirs()
+                    updateTask.inputDirs.add(hostDexToUpdateDir)
+                    updateTask.inputDirs.add(mergeJniLibsTask.streamOutputFolder)
+                    updateTask.configure(project, dummyApk, variant.signingConfig, minSdkVersion)
+                })
                 if (fastDebug.updateJavaClass) {
-                    reassembleHostTask.dependsOn customDexTask
-                }
-
-                packageApplication.finalizedBy reassembleHostTask
-                mergeJniLibsTask.doLast {
-                    FileTree dummyHostNativeLibs = project.fileTree("${project.buildDir}/intermediates/transforms/mergeJniLibs").include("**/*.so")
-                    File hostNativeLibsDir = new File(unzipHostApk, "lib")
-                    dummyHostNativeLibs.each { so ->
-                        File hostNativeLibsABI = new File(hostNativeLibsDir, so.parentFile.name)
-                        if (hostNativeLibsABI.exists()) {
-                            File hostNativeLib = new File(hostNativeLibsABI, so.name)
-                            if (hostNativeLib.exists()) {
-                                println(" update so: " + so + " >> " + hostNativeLibsABI)
-                                project.copy {
-                                    from so
-                                    into hostNativeLibsABI
-                                }
+                    customDexTask.doFirst {
+                        if (hostDexToUpdateDir.listFiles().length == 0) {
+                            project.copy {
+                                from project.zipTree(fastDebug.hostApk)
+                                into hostDexToUpdateDir
+                                include "*.dex"
                             }
                         }
                     }
+                    apkUpdateTask.dependsOn customDexTask
                 }
-                reassembleHostTask.doLast {
-                    File srcPath = new File(dummyApk.parentFile, "${unzipHostApk.name}_unsign.apk")
-                    File dstPath = new File(dummyApk.parentFile, "${unzipHostApk.name}_sign.apk")
-                    def signingConfig
-                    if (currentVersion >= miniVersion) {
-                        signingConfig = getSig(packageApplication.signingConfig.asFileTree.singleFile)
-                    }else {
-                        signingConfig = packageApplication.signingConfig
-                    }
-                    String keyStore = signingConfig.storeFile.path
-                    String storePass = signingConfig.storePassword
-                    String alias = signingConfig.keyAlias
-                    println "Sign apk, storeFile: " + keyStore + " storePass:" + storePass + " alias:" + alias + " source path: " + srcPath + ", destination path: " + dstPath
-                    project.exec {
-                        executable "jarsigner"
-                        args "-keystore", keyStore, "-storepass", storePass, "-signedjar", dstPath, srcPath, alias
-                    }
-                }
-
-                Task renameHostTask = project.task("updateDummyHostApk") {
-                    doLast {
-                        File srcPath = new File(dummyApk.parentFile, "${unzipHostApk.name}_sign.apk")
-                        File dstPath = dummyApk
+                apkUpdateTask.doFirst {
+                    if (!dummyApk.exists()) {
+                        File hostApkFile = new File(fastDebug.hostApk)
                         project.copy {
-                            from dummyApk
-                            into dstPath.parentFile
-                            rename dummyApk.name, "dummyHost.apk"
-                        }
-                        project.copy {
-                            from srcPath
-                            into dstPath.parentFile
-                            rename srcPath.name, dstPath.name
+                            from hostApkFile
+                            into dummyApk.parentFile
+                            rename hostApkFile.name, dummyApk.name
                         }
                     }
                 }
 
-                reassembleHostTask.finalizedBy renameHostTask
+                packageApplication.finalizedBy apkUpdateTask
             }
         }
     }
@@ -206,8 +150,6 @@ class HostPlugin implements Plugin<Project> {
         void afterExecute(Task task, TaskState taskState) {
             def ms = System.currentTimeMillis() - beforeMS
             times.add([ms, task.path])
-
-            //task.project.logger.warn "${task.path} spend ${ms}ms"
         }
 
         @Override
@@ -254,14 +196,5 @@ class HostPlugin implements Plugin<Project> {
 
     void printTaskRuntime(Project prj) {
         prj.gradle.addListener(new BuildTimeListener())
-    }
-
-    SigningConfig getSig(File file) {
-        GsonBuilder gsonBuilder = new GsonBuilder()
-        gsonBuilder.registerTypeAdapter(File.class, new PlainFileGsonTypeAdaptor())
-        Gson gson = gsonBuilder.create()
-        file.withReader {
-            return gson.fromJson(it, SigningConfig.class)
-        }
     }
 }

@@ -68,8 +68,7 @@ class CustomDexTask extends DefaultTask implements Context {
 
     @TaskAction
     void execute(IncrementalTaskInputs inputs) {
-        File unzipHostApk = new File(project.buildDir, "hostApk")
-        FileTree dexes = project.fileTree(unzipHostApk).include("*.dex")
+        FileTree dexes = project.fileTree(outputDir).include("*.dex")
         File dexesInfoDir = new File(project.buildDir, "intermediates/hostDexInfo")
         if (!dexesInfoDir.exists()) {
             dexesInfoDir.mkdirs()
@@ -204,6 +203,7 @@ class CustomDexTask extends DefaultTask implements Context {
                 }
             }
         }
+        output.close()
     }
 
     @Override
