@@ -22,7 +22,7 @@ task generateBuildConfig << {
     buildConfigFile.createNewFile()
 
     Properties properties = new Properties()
-    properties.load(new File(rootDir, '../gradle.properties').newDataInputStream())
+    properties.load(new File(projectDir, '../gradle.properties').newDataInputStream())
     def version = properties.getProperty('version')
     def group = properties.getProperty('group')
     def name = properties.getProperty('artifactName')
