@@ -54,6 +54,12 @@ class DebugHelper implements Plugin<DefaultSettings> {
                 mUpdateJavaClass = settings.updateJavaClass
             }
 
+            if (mHostApk != null) {
+                if (!new File(mHostApk).exists()) {
+                    throw new RuntimeException(" host apk not exist: ${mHostApk}")
+                }
+            }
+
             String dummyHostName = "dummyHost"
             mDummyHostDir = new File(settings.rootDir, "${dummyHostName}")
             getHostInfo()
