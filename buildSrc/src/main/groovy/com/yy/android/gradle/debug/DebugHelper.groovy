@@ -99,11 +99,10 @@ class DebugHelper implements Plugin<DefaultSettings> {
             }
             println("hookExternalBuild: " + hookExternalBuild)
             if (hookExternalBuild) {
-
                 settings.gradle.beforeProject { p ->
                     if (p.name == dummyHostName && mHostApk != null) {
                         hookDummyHost(p)
-                    } else if (p.name == settings.rootProject.name) {
+                    } else if (p.name == settings.rootProject.name && p.projectDir == settings.rootDir) {
                         /**
                          * Note, there are two classloader context when hook project, for example 'com.android.tools.build:gradle:3.0.1' dependency
                          * will be loaded in setting classloader and rootProject classloader, the class with same name is different in these two classloader,
@@ -118,7 +117,6 @@ class DebugHelper implements Plugin<DefaultSettings> {
                                 mDummyHostDir.deleteDir()
                             }
                         }
-
                     } else {
                         hookDependenciesProject(p)
                     }
