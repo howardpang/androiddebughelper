@@ -44,7 +44,7 @@ class ApkUpdateTask extends DefaultTask {
                     String path = "lib/${so.parentFile.name}/${so.name}"
                     filesToUpdate.put(so, path)
                 }
-                project.fileTree(it).include("*.dex").each { dex->
+                project.fileTree(it).include("*.dex", "AndroidManifest.xml").each { dex->
                     filesToUpdate.put(dex, "${dex.name}")
                 }
             }
@@ -63,6 +63,9 @@ class ApkUpdateTask extends DefaultTask {
         apkUpdater = new ApkUpdater(apkToUpdate, signingConfig, minSdkVersion, true)
         apkUpdater.updateFiles(filesToUpdate)
         apkUpdater.close()
+        //Note!!! we must output a file to outputDir, otherwise, the incremental task can't run exactly
+        File tmp = new File(outputDir, "tmp.txt")
+        tmp.createNewFile()
     }
 
     void configure(Project prj, File apk, SigningConfig signingConfig, int minSdkVersion ) {

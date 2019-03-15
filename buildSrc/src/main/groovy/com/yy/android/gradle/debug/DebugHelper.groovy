@@ -393,8 +393,8 @@ include \$(BUILD_SHARED_LIBRARY)
                 ExecResult result = execAction.execute()
                 if (result.exitValue == 0) {
                     List<String> apkInfo = stdout.toString().readLines()
-                    String packageName = mHostPackageName
-                    String launchActivity = mHostLaunchActivity
+                    String packageName
+                    String launchActivity
                     String sdkVersion
                     String targetSdkVersion
                     String nativeCode
@@ -430,8 +430,12 @@ include \$(BUILD_SHARED_LIBRARY)
                         }
                     }
                     println("extract host info from apk : ${packageName} >> ${launchActivity} >> ${sdkVersion} >> ${targetSdkVersion} >> ${nativeCode}")
-                    mHostPackageName = packageName
-                    mHostLaunchActivity = launchActivity
+                    if (packageName != null) {
+                        mHostPackageName = packageName
+                    }
+                    if (launchActivity != null) {
+                        mHostLaunchActivity = launchActivity
+                    }
                     if (sdkVersion != null) {
                         mMinSdk = sdkVersion
                     }

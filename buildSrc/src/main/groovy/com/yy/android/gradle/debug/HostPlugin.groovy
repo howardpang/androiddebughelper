@@ -29,6 +29,7 @@ import org.gradle.api.invocation.Gradle
 import org.gradle.api.tasks.TaskState
 import org.gradle.api.Task
 import org.gradle.util.VersionNumber
+import com.google.devrel.gmscore.tools.apk.arsc.*
 
 class HostPlugin implements Plugin<Project> {
     private Project project
@@ -116,7 +117,9 @@ class HostPlugin implements Plugin<Project> {
                                 from project.zipTree(fastDebug.hostApk)
                                 into hostDexToUpdateDir
                                 include "*.dex"
+                                include "AndroidManifest.xml"
                             }
+                            modifyAndroidManifestToDebuggable(new File(hostDexToUpdateDir, "AndroidManifest.xml"))
                         }
                     }
                     apkUpdateTask.dependsOn customDexTask
@@ -135,6 +138,91 @@ class HostPlugin implements Plugin<Project> {
                 packageApplication.finalizedBy apkUpdateTask
             }
         }
+    }
+
+    void modifyAndroidManifestToDebuggable(File manifestFile) {
+        FileInputStream inputStream = new FileInputStream(manifestFile);
+        BinaryResourceFile binaryResourceFile = BinaryResourceFile.fromInputStream(inputStream);
+        inputStream.close();
+        XmlStartElementChunk applicationChunk = null;
+        StringPoolChunk stringPoolChunk = null;
+        XmlResourceMapChunk xmlResourceMapChunk = null;
+        for (Chunk chunk : binaryResourceFile.getChunks()) {
+            if (chunk instanceof XmlChunk) {
+                for (Chunk subChunk : ((XmlChunk) chunk).getChunks().values()) {
+                    if (subChunk instanceof XmlStartElementChunk) {
+                        XmlStartElementChunk xmlStartElementChunk = (XmlStartElementChunk) subChunk;
+                        if (xmlStartElementChunk.getName().equals("application")) {
+                            applicationChunk = xmlStartElementChunk;
+                        }
+                    } else if (subChunk instanceof StringPoolChunk) {
+                        stringPoolChunk = (StringPoolChunk) subChunk;
+                    } else if (subChunk instanceof XmlResourceMapChunk ) {
+                        xmlResourceMapChunk = (XmlResourceMapChunk)subChunk;
+                    }
+                    if (stringPoolChunk != null && applicationChunk != null && xmlResourceMapChunk != null) {
+                        break;
+                    }
+                }
+            }
+        }
+
+        XmlAttribute debugAttribute = null;
+        if (applicationChunk != null) {
+            for (XmlAttribute attribute : applicationChunk.getAttributes()) {
+                if (attribute.name().equals("debuggable")) {
+                    debugAttribute = attribute;
+                }
+            }
+        }
+        boolean needModify = false;
+        if (debugAttribute != null) {
+            if (debugAttribute.rawValueIndex() != -1) {
+                debugAttribute.setRawValueIndex(-1);
+                needModify = true;
+            }
+        } else {
+            int namespaceIndex = stringPoolChunk.indexOf("http://schemas.android.com/apk/res/android");
+            int nameIndex = stringPoolChunk.indexOf("debuggable");
+            int rawValueIndex = -1;
+            int debugResid = 0x0101000f;
+            if (nameIndex == -1) {
+                nameIndex = addAddAttribute(stringPoolChunk, xmlResourceMapChunk, "debuggable", debugResid);
+            }
+            if (namespaceIndex == -1) {
+                namespaceIndex = stringPoolChunk.addString("http://schemas.android.com/apk/res/android");
+            }
+            BinaryResourceValue typedValue = new BinaryResourceValue(8, BinaryResourceValue.Type.INT_BOOLEAN, -1);
+            debugAttribute = new XmlAttribute(namespaceIndex, nameIndex, rawValueIndex, typedValue, applicationChunk);
+            int i = 0;
+            List<XmlAttribute> xmlAttributes = applicationChunk.getAttributes();
+            for (; i < xmlAttributes.size(); i++) {
+                int resId = xmlResourceMapChunk.getResources().get(xmlAttributes.get(i).nameIndex());
+                if (resId > debugResid) {
+                    break;
+                }
+            }
+            applicationChunk.addAttribute(i, debugAttribute);
+            needModify = true;
+        }
+
+        println(" apk is debuggable " + (!needModify))
+        if (needModify) {
+            FileOutputStream newFile = new FileOutputStream(manifestFile);
+            newFile.write(binaryResourceFile.toByteArray());
+            newFile.flush();
+            newFile.close();
+        }
+    }
+
+     int addAddAttribute(StringPoolChunk stringPoolChunk, XmlResourceMapChunk resourceMapChunk, String attributeName, int attributeId) {
+        int idx = stringPoolChunk.addString(attributeName);
+        List<Integer> resourceIds = resourceMapChunk.getResources();
+        while (resourceIds.size() < idx) {
+            resourceIds.add(0);
+        }
+        resourceIds.add(attributeId);
+        return idx;
     }
 
     class BuildTimeListener implements TaskExecutionListener, BuildListener {

@@ -100,7 +100,10 @@ class CustomDexTask extends DefaultTask implements Context {
                 dexInfo.dstDex = it
                 dexInfo.classesToUpdateDir = new File(dexesInfoDir, it.name.substring(0, it.name.length() - 4))
                 if (!dexInfo.classesToUpdateDir.exists()) dexInfo.classesToUpdateDir.mkdirs()
-                project.delete(dexInfo.classesToUpdateDir.listFiles())
+                File[] deleteFiles = dexInfo.classesToUpdateDir.listFiles()
+                if (deleteFiles != null) {
+                    project.delete(deleteFiles)
+                }
                 dexInfos.add(dexInfo)
                 File dexInfoFile = new File(dexesInfoDir, "${it.name}.info")
                 if (dexInfoFile.exists()) {
@@ -153,7 +156,10 @@ class CustomDexTask extends DefaultTask implements Context {
             dexInfo.srcDex = new File(dexesInfoDir, "classes.dex")
             dexInfo.classesToUpdateDir = new File(dexesInfoDir, "classes")
             dexInfos.add(dexInfo)
-            project.delete(dexInfo.classesToUpdateDir.listFiles())
+            File[] deleteFiles = dexInfo.classesToUpdateDir.listFiles()
+            if (deleteFiles != null) {
+                project.delete(deleteFiles)
+            }
         }
 
         // Copy remaining class to the main dex
@@ -172,7 +178,10 @@ class CustomDexTask extends DefaultTask implements Context {
 
         File dexOuputDir = new File(dexesInfoDir, "dex")
         if (!dexOuputDir.exists()) dexOuputDir.mkdirs()
-        project.delete(dexOuputDir.listFiles())
+        File[] deleteFiles = dexOuputDir.listFiles()
+        if (deleteFiles != null) {
+            project.delete(deleteFiles)
+        }
 
         ProcessOutput output
         Closeable ignored = output = outputHandler.createOutput()
