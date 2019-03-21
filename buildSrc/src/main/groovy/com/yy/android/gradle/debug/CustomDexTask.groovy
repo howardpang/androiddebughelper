@@ -50,6 +50,7 @@ class CustomDexTask extends DefaultTask implements Context {
     private final WorkerExecutor workerExecutor
     private String variantName
     private ProcessOutputHandler outputHandler
+    private boolean updateJavaClass
     final LoggerWrapper loggerWrapper = LoggerWrapper.getLogger(CustomDexTask.class)
 
     ClassToDex classToDex
@@ -68,6 +69,9 @@ class CustomDexTask extends DefaultTask implements Context {
 
     @TaskAction
     void execute(IncrementalTaskInputs inputs) {
+        if (!updateJavaClass) {
+            return
+        }
         FileTree dexes = project.fileTree(outputDir).include("*.dex")
         File dexesInfoDir = new File(project.buildDir, "intermediates/hostDexInfo")
         if (!dexesInfoDir.exists()) {
@@ -225,30 +229,33 @@ class CustomDexTask extends DefaultTask implements Context {
         return workerExecutor
     }
 
-    void configure(Project project, ApplicationVariantImpl applicationVariant) {
-        variantName = applicationVariant.name
-        MessageReceiver errorReporter
-        VariantScope scope = applicationVariant.variantData.scope
-        AndroidBuilder androidBuilder = scope.getGlobalScope().androidBuilder
-        String curVersionString = Utils.androidGradleVersion()
-        VersionNumber currentVersion = VersionNumber.parse(curVersionString)
-        VersionNumber miniVersion = VersionNumber.parse("3.1.0")
-        if (currentVersion >= miniVersion) {
-            errorReporter = androidBuilder.getMessageReceiver()
-        } else {
-            errorReporter = androidBuilder.getErrorReporter()
-        }
-        outputHandler =
-                new ParsingProcessOutputHandler(
-                        new ToolOutputParser(new DexParser(), Message.Kind.ERROR, loggerWrapper),
-                        new ToolOutputParser(new DexParser(), loggerWrapper),
-                        errorReporter);
+    void configure(Project project, ApplicationVariantImpl applicationVariant, boolean updateJavaClass) {
+        this.updateJavaClass = updateJavaClass;
+        this.variantName = applicationVariant.name
+        if (updateJavaClass) {
+            MessageReceiver errorReporter
+            VariantScope scope = applicationVariant.variantData.scope
+            AndroidBuilder androidBuilder = scope.getGlobalScope().androidBuilder
+            String curVersionString = Utils.androidGradleVersion()
+            VersionNumber currentVersion = VersionNumber.parse(curVersionString)
+            VersionNumber miniVersion = VersionNumber.parse("3.1.0")
+            if (currentVersion >= miniVersion) {
+                errorReporter = androidBuilder.getMessageReceiver()
+            } else {
+                errorReporter = androidBuilder.getErrorReporter()
+            }
+            outputHandler =
+                    new ParsingProcessOutputHandler(
+                            new ToolOutputParser(new DexParser(), Message.Kind.ERROR, loggerWrapper),
+                            new ToolOutputParser(new DexParser(), loggerWrapper),
+                            errorReporter);
 
-        miniVersion = VersionNumber.parse("3.3.0")
-        if (currentVersion >= miniVersion) {
-            classToDex = new ClassToDex330(this, project, applicationVariant)
-        }else {
-            classToDex = new ClassToDex300(project, applicationVariant, outputHandler)
+            miniVersion = VersionNumber.parse("3.3.0")
+            if (currentVersion >= miniVersion) {
+                classToDex = new ClassToDex330(this, project, applicationVariant)
+            } else {
+                classToDex = new ClassToDex300(project, applicationVariant, outputHandler)
+            }
         }
     }
 }

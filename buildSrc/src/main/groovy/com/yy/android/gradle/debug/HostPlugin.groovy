@@ -53,10 +53,10 @@ class HostPlugin implements Plugin<Project> {
                 Task packageApplication
                 Task mergeResources
                 int minSdkVersion = variant.variantData.scope.getMinSdkVersion().getFeatureLevel()
-                if (currentVersion >= miniVersion ) {
+                if (currentVersion >= miniVersion) {
                     packageApplication = variant.packageApplicationProvider.get()
                     mergeResources = variant.mergeResourcesProvider.get()
-                }else {
+                } else {
                     packageApplication = variant.packageApplication
                     mergeResources = variant.mergeResources
                 }
@@ -95,35 +95,43 @@ class HostPlugin implements Plugin<Project> {
                 File hostFilesToUpdateDir = new File(project.buildDir, "intermediates/hostFilesToUpdate")
                 File hostDexToUpdateDir = new File(hostFilesToUpdateDir, "dex")
 
-                CustomDexTask customDexTask = project.task("customDex${variant.name.capitalize()}", type:CustomDexTask.class, { CustomDexTask dexTask->
+                CustomDexTask customDexTask = project.task("customDex${variant.name.capitalize()}", type: CustomDexTask.class, { CustomDexTask dexTask ->
                     dexTask.classesDirs = []
                     dexTask.outputDir = hostDexToUpdateDir
-                    if (!dexTask.outputDir.exists())dexTask.outputDir.mkdirs()
+                    if (!dexTask.outputDir.exists()) dexTask.outputDir.mkdirs()
                     DependencyUtils.collectDependencyProjectClassesDirs(project, variant.name, dexTask.classesDirs)
-                    dexTask.configure(project, variant)
+                    dexTask.configure(project, variant, fastDebug.updateJavaClass)
                 })
-                ApkUpdateTask apkUpdateTask = project.task("apkUpdate${variant.name.capitalize()}", type:ApkUpdateTask.class, { ApkUpdateTask updateTask->
+                ApkUpdateTask apkUpdateTask = project.task("apkUpdate${variant.name.capitalize()}", type: ApkUpdateTask.class, { ApkUpdateTask updateTask ->
                     updateTask.inputDirs = []
                     updateTask.outputDir = new File(project.buildDir, "intermediates/hostFilesToUpdate/output")
-                    if (!updateTask.outputDir.exists())updateTask.outputDir.mkdirs()
+                    if (!updateTask.outputDir.exists()) updateTask.outputDir.mkdirs()
                     updateTask.inputDirs.add(hostDexToUpdateDir)
                     updateTask.inputDirs.add(mergeJniLibsTask.streamOutputFolder)
                     updateTask.configure(project, dummyApk, variant.signingConfig, minSdkVersion)
                 })
-                if (fastDebug.updateJavaClass) {
-                    customDexTask.doFirst {
-                        if (hostDexToUpdateDir.listFiles().length == 0) {
+
+                customDexTask.doFirst {
+                    if (hostDexToUpdateDir.listFiles().length == 0) {
+                        if (fastDebug.updateJavaClass) {
                             project.copy {
                                 from project.zipTree(fastDebug.hostApk)
                                 into hostDexToUpdateDir
                                 include "*.dex"
                                 include "AndroidManifest.xml"
                             }
-                            modifyAndroidManifestToDebuggable(new File(hostDexToUpdateDir, "AndroidManifest.xml"))
+                        } else {
+                            project.copy {
+                                from project.zipTree(fastDebug.hostApk)
+                                into hostDexToUpdateDir
+                                include "AndroidManifest.xml"
+                            }
                         }
+                        modifyAndroidManifestToDebuggable(new File(hostDexToUpdateDir, "AndroidManifest.xml"))
                     }
-                    apkUpdateTask.dependsOn customDexTask
                 }
+
+                apkUpdateTask.dependsOn customDexTask
                 apkUpdateTask.doFirst {
                     if (!dummyApk.exists()) {
                         File hostApkFile = new File(fastDebug.hostApk)
@@ -179,6 +187,10 @@ class HostPlugin implements Plugin<Project> {
         if (debugAttribute != null) {
             if (debugAttribute.rawValueIndex() != -1) {
                 debugAttribute.setRawValueIndex(-1);
+                needModify = true;
+            }
+            if (debugAttribute.typedValue().data() != -1) {
+                debugAttribute.typedValue().setDataValue(-1);
                 needModify = true;
             }
         } else {

@@ -147,7 +147,6 @@ public class XmlAttribute implements SerializableResource {
   }
 
   public void setRawValueIndex(int value) {
-      typedValue.setDataValue(value);
       rawValueIndex = value;
   }
 }
