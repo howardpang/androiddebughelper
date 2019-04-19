@@ -127,7 +127,9 @@ class HostPlugin implements Plugin<Project> {
                                 include "AndroidManifest.xml"
                             }
                         }
-                        modifyAndroidManifestToDebuggable(new File(hostDexToUpdateDir, "AndroidManifest.xml"))
+                        if (fastDebug.modifyApkDebuggable) {
+                            modifyAndroidManifestToDebuggable(new File(hostDexToUpdateDir, "AndroidManifest.xml"))
+                        }
                     }
                 }
 

@@ -34,6 +34,7 @@ class DebugHelper implements Plugin<DefaultSettings> {
     private String mMinSdk = "23"
     private String mTargetSdk = "24"
     private boolean mUpdateJavaClass = true
+    private boolean mModifyApkDebuggable = true
 
     void apply(DefaultSettings settings) {
         this.settings = settings
@@ -52,6 +53,9 @@ class DebugHelper implements Plugin<DefaultSettings> {
             }
             if (settings.hasProperty("updateJavaClass")) {
                 mUpdateJavaClass = settings.updateJavaClass
+            }
+            if (settings.hasProperty("modifyApkDebuggable ")) {
+                mModifyApkDebuggable = settings.modifyApkDebuggable
             }
 
             if (mHostApk != null) {
@@ -79,6 +83,7 @@ class DebugHelper implements Plugin<DefaultSettings> {
             println("host flavor: " + mHostFlavor)
             println("host launch activity: " + mHostLaunchActivity)
             println("update java class: " + mUpdateJavaClass)
+            println("modify apk debuggable: " + mModifyApkDebuggable)
 
             createDummyHost(settings, false, mDummyHostDir, mHostPackageName, mHostFlavor, mHostLaunchActivity, mMinSdk, mTargetSdk)
             settings.include(":${dummyHostName}")
@@ -124,6 +129,7 @@ class DebugHelper implements Plugin<DefaultSettings> {
         p.afterEvaluate {
             p.fastDebug.hostApk = mHostApk
             p.fastDebug.updateJavaClass = (mUpdateJavaClass && mHostApk != null)
+            p.fastDebug.modifyApkDebuggable = (mModifyApkDebuggable && mHostApk != null)
         }
     }
 

@@ -20,6 +20,7 @@ debughelper plugin is a gradle plugin help to debug android lib module, the plug
         hostApk = "${rootDir}/test.apk"
         //hostFlavor = "audio"
         //updateJavaClass = false
+        //modifyApkDebuggable = false
         //hostLaunchActivity = "com.ydq.test.demo.MainActivity"
     }
     apply plugin: 'com.ydq.android.gradle.debug.helper'
@@ -28,4 +29,5 @@ debughelper plugin is a gradle plugin help to debug android lib module, the plug
 * Specify host launch activity name to *hostLaunchActivity* if your apk have multi-launch activity  
 * Specify host flavor name to *hostFlavor* if your module have flavor
 * Specify *updateJavaClass* to decide whether to update java class, default is true, sometimes you may want to just update native code,so you can set it to false and the build will faster
+* Specify *modifyApkDebuggable* to decide whether to modify the apk to debuggable, default is true, some app will check this flag and exist when they found the app is debuggable
 ### 3. The plugin will create *dummyHost* app module to your project, select the *dummyHost* to run/debug, the plugin will update the classes and native library belong the project to the debug apk, and install the debug apk to run/debug  
