@@ -19,9 +19,8 @@ import com.android.builder.model.SigningConfig
 import com.android.ide.common.signing.CertificateInfo;
 import com.android.ide.common.signing.KeystoreHelper
 import com.google.common.base.Preconditions
-
+import com.google.common.base.Optional;
 import org.gradle.util.VersionNumber;
-
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.TimeUnit
@@ -32,6 +31,8 @@ class ApkUpdater implements Closeable {
     static Class<?> sApkZFileCreatorFactoryClass
     static Class<?> sDeflateExecutionCompressorClass
     static Class<?> sBestAndDefaultDeflateExecutorCompressorClass
+    static Class<?>  sSigningOptionsClass
+    static Class<?>  sSigningOptionsValidationClass
     static def sNativeLibrariesPackagingMode_UNCOMPRESSED_AND_ALIGNED
 
     private def apkZFileCreator
@@ -42,9 +43,9 @@ class ApkUpdater implements Closeable {
         def creationData
         def executionCompressor
         ThreadPoolExecutor compressionExecutor = new ThreadPoolExecutor(0, 2, 100L, TimeUnit.MILLISECONDS, new LinkedBlockingDeque())
+        String curVersionString = Utils.androidGradleVersion()
+        VersionNumber currentVersion = VersionNumber.parse(curVersionString)
         if (sZFileOptionsClass == null) {
-            String curVersionString = Utils.androidGradleVersion()
-            VersionNumber currentVersion = VersionNumber.parse(curVersionString)
             VersionNumber miniVersion = VersionNumber.parse("3.2.0")
             if (currentVersion >= miniVersion) {
                 sZFileOptionsClass = Class.forName("com.android.tools.build.apkzlib.zip.ZFileOptions")
@@ -53,6 +54,10 @@ class ApkUpdater implements Closeable {
                 sDeflateExecutionCompressorClass = Class.forName("com.android.tools.build.apkzlib.zip.compress.DeflateExecutionCompressor")
                 sBestAndDefaultDeflateExecutorCompressorClass = Class.forName("com.android.tools.build.apkzlib.zip.compress.BestAndDefaultDeflateExecutorCompressor")
                sNativeLibrariesPackagingMode_UNCOMPRESSED_AND_ALIGNED = Class.forName("com.android.tools.build.apkzlib.zfile.NativeLibrariesPackagingMode").getEnumConstants()[1]
+                if(currentVersion >= VersionNumber.parse("3.4.0")) {
+                    sSigningOptionsClass = Class.forName("com.android.tools.build.apkzlib.sign.SigningOptions")
+                    sSigningOptionsValidationClass = Class.forName("com.android.tools.build.apkzlib.sign.SigningOptions\$Validation")
+                }
             } else {
                 sZFileOptionsClass = Class.forName("com.android.apkzlib.zip.ZFileOptions")
                 sCreationDataClass = Class.forName("com.android.apkzlib.zfile.ApkCreatorFactory\$CreationData")
@@ -76,7 +81,19 @@ class ApkUpdater implements Closeable {
         options.setNoTimestamps(true)
         options.setCoverEmptySpaceUsingExtraField(true)
         options.setCompressor(executionCompressor)
-        creationData = sCreationDataClass.newInstance(apk, certificateInfo.key, certificateInfo.certificate, signingConfig.isV1SigningEnabled(), signingConfig.isV2SigningEnabled(), "apkUpdater", "apkUpdater", minSdkVersion, sNativeLibrariesPackagingMode_UNCOMPRESSED_AND_ALIGNED, noP)
+        if(currentVersion >= VersionNumber.parse("3.4.0")) {
+            def signingOptions = Optional.of(sSigningOptionsClass.builder()
+                    .setKey(certificateInfo.getKey())
+                    .setCertificates(certificateInfo.getCertificate())
+                    .setV1SigningEnabled(signingConfig.isV1SigningEnabled())
+                    .setV2SigningEnabled(signingConfig.isV2SigningEnabled())
+                    .setMinSdkVersion(minSdkVersion)
+                    .setValidation(sSigningOptionsValidationClass.ALWAYS_VALIDATE)
+                    .build());
+            creationData = sCreationDataClass.newInstance(apk, signingOptions, "apkUpdater", "apkUpdater", sNativeLibrariesPackagingMode_UNCOMPRESSED_AND_ALIGNED, noP)
+        }else {
+            creationData = sCreationDataClass.newInstance(apk, certificateInfo.key, certificateInfo.certificate, signingConfig.isV1SigningEnabled(), signingConfig.isV2SigningEnabled(), "apkUpdater", "apkUpdater", minSdkVersion, sNativeLibrariesPackagingMode_UNCOMPRESSED_AND_ALIGNED, noP)
+        }
         apkZFileCreator = sApkZFileCreatorFactoryClass.newInstance(options).make(creationData)
     }
 
