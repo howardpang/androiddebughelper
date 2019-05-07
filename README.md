@@ -1,7 +1,7 @@
 ## debughelper
 debughelper plugin is a gradle plugin help to debug android lib module, the plugin can update java and native code to the host apk
 ## Requirement
-* android gradle plugin: 3.0.0 - 3.3.0
+* android gradle plugin: 3.0.0 - 3.4.0
 * LLDB, if you want to debug native code: <https://developer.android.com/studio/debug/>
 ## Usage
 ### 1.Edit your root *setting.gradle* file, add these code to the **end of the file**
