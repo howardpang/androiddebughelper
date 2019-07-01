@@ -66,14 +66,7 @@ class DebugHelper implements Plugin<DefaultSettings> {
 
             String dummyHostName = "dummyHost"
             mDummyHostDir = new File(settings.rootDir, "${dummyHostName}")
-            //First try to extract host info from dummyHost AndroidManifest.xml
-            if (mHostPackageName == null || mHostLaunchActivity == null) {
-                extractHostInfoFromManifest()
-            }
-            //Then try to extract host info from host apk
-            if (mHostPackageName == null || mHostLaunchActivity == null) {
-                extractHostInfoFromApk()
-            }
+            extractHostInfo()
             if (mHostPackageName == null) {
                 return
             }
@@ -353,8 +346,9 @@ include \$(BUILD_SHARED_LIBRARY)
         dummy.createNewFile()
     }
 
-    private void extractHostInfoFromManifest() {
+    private void extractHostInfo() {
         if (mDummyHostDir.exists()) {
+            //First try to extract host info from dummyHost AndroidManifest.xml
             try {
                 File manifest = new File(mDummyHostDir, "src/main/AndroidManifest.xml")
                 def manifestParser = new XmlParser(false, false).parse(manifest)
@@ -364,6 +358,9 @@ include \$(BUILD_SHARED_LIBRARY)
             catch (Exception e) {
                 println("getHostInfo " + e.toString())
             }
+        }else {
+            //Then try to extract host info from host apk
+            extractHostInfoFromApk()
         }
     }
 
