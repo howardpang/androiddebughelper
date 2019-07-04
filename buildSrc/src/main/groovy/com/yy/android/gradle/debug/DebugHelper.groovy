@@ -54,7 +54,7 @@ class DebugHelper implements Plugin<DefaultSettings> {
             if (settings.hasProperty("updateJavaClass")) {
                 mUpdateJavaClass = settings.updateJavaClass
             }
-            if (settings.hasProperty("modifyApkDebuggable ")) {
+            if (settings.hasProperty("modifyApkDebuggable")) {
                 mModifyApkDebuggable = settings.modifyApkDebuggable
             }
 
