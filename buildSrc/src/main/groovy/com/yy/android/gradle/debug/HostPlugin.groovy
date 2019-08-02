@@ -29,7 +29,6 @@ import org.gradle.api.invocation.Gradle
 import org.gradle.api.tasks.TaskState
 import org.gradle.api.Task
 import org.gradle.util.VersionNumber
-import com.google.devrel.gmscore.tools.apk.arsc.*
 
 class HostPlugin implements Plugin<Project> {
     private Project project
@@ -38,7 +37,7 @@ class HostPlugin implements Plugin<Project> {
     void apply(Project project) {
         this.project = project
         printTaskRuntime(project)
-        project.extensions.create('fastDebug', HostExtension.class)
+        project.extensions.create('debughelp', HostExtension.class)
         String curVersionString = Utils.androidGradleVersion()
         if (curVersionString == null) {
             return
@@ -72,11 +71,11 @@ class HostPlugin implements Plugin<Project> {
                 Task dexBuilderTask = project.tasks.withType(TransformTask.class).find {
                     it.transform.name == 'dexBuilder' && it.variantName == variant.name
                 }
-                Task dexMergerTask = project.tasks.withType(TransformTask.class).find {
+                Set<Task> dexMergerTasks = project.tasks.withType(TransformTask.class).findAll {
                     it.transform.name == 'dexMerger' && it.variantName == variant.name
                 }
-                if (dexMergerTask == null) {
-                    dexMergerTask = project.tasks.withType(DexMergingTask.class).find {
+                if (dexMergerTasks.empty) {
+                    dexMergerTasks = project.tasks.withType(DexMergingTask.class).findAll {
                         it.variantName == variant.name
                     }
                 }
@@ -85,159 +84,41 @@ class HostPlugin implements Plugin<Project> {
                 packageApplication.enabled = false
                 mergeResources.enabled = false
                 dexBuilderTask.enabled = false
-                if (dexMergerTask != null) {
-                    dexMergerTask.enabled = false
+                if (dexMergerTasks != null) {
+                    dexMergerTasks.each {
+                        it.enabled = false
+                    }
                 }
-                HostExtension fastDebug = project.fastDebug
-                if (fastDebug.hostApk == null || !(new File(fastDebug.hostApk).exists())) {
+                HostExtension hostExtension = project.debughelp
+                if (hostExtension.hostApk == null || !(new File(hostExtension.hostApk).exists())) {
                     return
                 }
-                File hostFilesToUpdateDir = new File(project.buildDir, "intermediates/hostFilesToUpdate")
-                File hostDexToUpdateDir = new File(hostFilesToUpdateDir, "dex")
+
+                File customDexTaskOutputDir = new File(project.buildDir, "debughelp/hostFilesToUpdate")
+                File apkUpdateTaskOutputDir = new File(project.buildDir, "debughelp/output")
 
                 CustomDexTask customDexTask = project.task("customDex${variant.name.capitalize()}", type: CustomDexTask.class, { CustomDexTask dexTask ->
                     dexTask.classesDirs = []
-                    dexTask.outputDir = hostDexToUpdateDir
+                    dexTask.outputDir = customDexTaskOutputDir
                     if (!dexTask.outputDir.exists()) dexTask.outputDir.mkdirs()
                     DependencyUtils.collectDependencyProjectClassesDirs(project, variant.name, dexTask.classesDirs)
-                    dexTask.configure(project, variant, fastDebug.updateJavaClass)
+                    dexTask.configure(project, variant, hostExtension)
                 })
                 ApkUpdateTask apkUpdateTask = project.task("apkUpdate${variant.name.capitalize()}", type: ApkUpdateTask.class, { ApkUpdateTask updateTask ->
                     updateTask.inputDirs = []
-                    updateTask.outputDir = new File(project.buildDir, "intermediates/hostFilesToUpdate/output")
+                    updateTask.outputDir = apkUpdateTaskOutputDir
                     if (!updateTask.outputDir.exists()) updateTask.outputDir.mkdirs()
-                    updateTask.inputDirs.add(hostDexToUpdateDir)
+                    updateTask.inputDirs.add(customDexTaskOutputDir)
                     updateTask.inputDirs.add(mergeJniLibsTask.streamOutputFolder)
-                    updateTask.configure(project, dummyApk, variant.signingConfig, minSdkVersion)
+                    updateTask.configure(project, dummyApk, variant.signingConfig, minSdkVersion, hostExtension)
                 })
 
-                customDexTask.doFirst {
-                    if (hostDexToUpdateDir.listFiles().length == 0) {
-                        if (fastDebug.updateJavaClass) {
-                            project.copy {
-                                from project.zipTree(fastDebug.hostApk)
-                                into hostDexToUpdateDir
-                                include "*.dex"
-                                include "AndroidManifest.xml"
-                            }
-                        } else {
-                            project.copy {
-                                from project.zipTree(fastDebug.hostApk)
-                                into hostDexToUpdateDir
-                                include "AndroidManifest.xml"
-                            }
-                        }
-                        if (fastDebug.modifyApkDebuggable) {
-                            modifyAndroidManifestToDebuggable(new File(hostDexToUpdateDir, "AndroidManifest.xml"))
-                        }
-                    }
-                }
-
                 apkUpdateTask.dependsOn customDexTask
-                apkUpdateTask.doFirst {
-                    if (!dummyApk.exists()) {
-                        File hostApkFile = new File(fastDebug.hostApk)
-                        project.copy {
-                            from hostApkFile
-                            into dummyApk.parentFile
-                            rename hostApkFile.name, dummyApk.name
-                        }
-                    }
-                }
-
                 packageApplication.finalizedBy apkUpdateTask
             }
         }
     }
 
-    void modifyAndroidManifestToDebuggable(File manifestFile) {
-        FileInputStream inputStream = new FileInputStream(manifestFile);
-        BinaryResourceFile binaryResourceFile = BinaryResourceFile.fromInputStream(inputStream);
-        inputStream.close();
-        XmlStartElementChunk applicationChunk = null;
-        StringPoolChunk stringPoolChunk = null;
-        XmlResourceMapChunk xmlResourceMapChunk = null;
-        for (Chunk chunk : binaryResourceFile.getChunks()) {
-            if (chunk instanceof XmlChunk) {
-                for (Chunk subChunk : ((XmlChunk) chunk).getChunks().values()) {
-                    if (subChunk instanceof XmlStartElementChunk) {
-                        XmlStartElementChunk xmlStartElementChunk = (XmlStartElementChunk) subChunk;
-                        if (xmlStartElementChunk.getName().equals("application")) {
-                            applicationChunk = xmlStartElementChunk;
-                        }
-                    } else if (subChunk instanceof StringPoolChunk) {
-                        stringPoolChunk = (StringPoolChunk) subChunk;
-                    } else if (subChunk instanceof XmlResourceMapChunk ) {
-                        xmlResourceMapChunk = (XmlResourceMapChunk)subChunk;
-                    }
-                    if (stringPoolChunk != null && applicationChunk != null && xmlResourceMapChunk != null) {
-                        break;
-                    }
-                }
-            }
-        }
-
-        XmlAttribute debugAttribute = null;
-        if (applicationChunk != null) {
-            for (XmlAttribute attribute : applicationChunk.getAttributes()) {
-                if (attribute.name().equals("debuggable")) {
-                    debugAttribute = attribute;
-                }
-            }
-        }
-        boolean needModify = false;
-        if (debugAttribute != null) {
-            if (debugAttribute.rawValueIndex() != -1) {
-                debugAttribute.setRawValueIndex(-1);
-                needModify = true;
-            }
-            if (debugAttribute.typedValue().data() != -1) {
-                debugAttribute.typedValue().setDataValue(-1);
-                needModify = true;
-            }
-        } else {
-            int namespaceIndex = stringPoolChunk.indexOf("http://schemas.android.com/apk/res/android");
-            int nameIndex = stringPoolChunk.indexOf("debuggable");
-            int rawValueIndex = -1;
-            int debugResid = 0x0101000f;
-            if (nameIndex == -1) {
-                nameIndex = addAddAttribute(stringPoolChunk, xmlResourceMapChunk, "debuggable", debugResid);
-            }
-            if (namespaceIndex == -1) {
-                namespaceIndex = stringPoolChunk.addString("http://schemas.android.com/apk/res/android");
-            }
-            BinaryResourceValue typedValue = new BinaryResourceValue(8, BinaryResourceValue.Type.INT_BOOLEAN, -1);
-            debugAttribute = new XmlAttribute(namespaceIndex, nameIndex, rawValueIndex, typedValue, applicationChunk);
-            int i = 0;
-            List<XmlAttribute> xmlAttributes = applicationChunk.getAttributes();
-            for (; i < xmlAttributes.size(); i++) {
-                int resId = xmlResourceMapChunk.getResources().get(xmlAttributes.get(i).nameIndex());
-                if (resId > debugResid) {
-                    break;
-                }
-            }
-            applicationChunk.addAttribute(i, debugAttribute);
-            needModify = true;
-        }
-
-        println(" apk is debuggable " + (!needModify))
-        if (needModify) {
-            FileOutputStream newFile = new FileOutputStream(manifestFile);
-            newFile.write(binaryResourceFile.toByteArray());
-            newFile.flush();
-            newFile.close();
-        }
-    }
-
-     int addAddAttribute(StringPoolChunk stringPoolChunk, XmlResourceMapChunk resourceMapChunk, String attributeName, int attributeId) {
-        int idx = stringPoolChunk.addString(attributeName);
-        List<Integer> resourceIds = resourceMapChunk.getResources();
-        while (resourceIds.size() < idx) {
-            resourceIds.add(0);
-        }
-        resourceIds.add(attributeId);
-        return idx;
-    }
 
     class BuildTimeListener implements TaskExecutionListener, BuildListener {
         private long beforeMS

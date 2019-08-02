@@ -19,4 +19,5 @@ class HostExtension {
     public String hostApk
     public boolean updateJavaClass = true
     public boolean modifyApkDebuggable = true
+    public String[] excludeSo
 }

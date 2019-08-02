@@ -1,0 +1,121 @@
+// Copyright (c) 2017, the R8 project authors. Please see the AUTHORS file
+// for details. All rights reserved. Use of this source code is governed by a
+// BSD-style license that can be found in the LICENSE file.
+
+package com.debughelper.tools.r8.ir.synthetic;
+
+import com.debughelper.tools.r8.errors.Unimplemented;
+import com.debughelper.tools.r8.graph.DexMethod;
+import com.debughelper.tools.r8.graph.DexProto;
+import com.debughelper.tools.r8.graph.DexType;
+import com.debughelper.tools.r8.ir.code.Invoke;
+import com.debughelper.tools.r8.ir.code.ValueType;
+import com.debughelper.tools.r8.ir.conversion.IRBuilder;
+import com.google.common.collect.Lists;
+import java.util.ArrayList;
+import java.util.List;
+
+// Source code representing simple forwarding method.
+public final class ForwardMethodSourceCode extends SyntheticSourceCode {
+
+  private final com.debughelper.tools.r8.graph.DexType targetReceiver;
+  private final com.debughelper.tools.r8.graph.DexMethod target;
+  private final com.debughelper.tools.r8.ir.code.Invoke.Type invokeType;
+  private final boolean castResult;
+
+  public ForwardMethodSourceCode(com.debughelper.tools.r8.graph.DexType receiver, com.debughelper.tools.r8.graph.DexProto proto,
+                                 com.debughelper.tools.r8.graph.DexType targetReceiver, com.debughelper.tools.r8.graph.DexMethod target, com.debughelper.tools.r8.ir.code.Invoke.Type invokeType) {
+    this(receiver, proto, targetReceiver, target, invokeType, false);
+  }
+
+  public ForwardMethodSourceCode(
+      com.debughelper.tools.r8.graph.DexType receiver,
+      DexProto proto,
+      com.debughelper.tools.r8.graph.DexType targetReceiver,
+      DexMethod target,
+      com.debughelper.tools.r8.ir.code.Invoke.Type invokeType,
+      boolean castResult) {
+    super(receiver, proto);
+    assert (targetReceiver == null) == (invokeType == Invoke.Type.STATIC);
+
+    this.target = target;
+    this.targetReceiver = targetReceiver;
+    this.invokeType = invokeType;
+    this.castResult = castResult;
+    assert checkSignatures();
+
+    switch (invokeType) {
+      case DIRECT:
+      case STATIC:
+      case SUPER:
+      case INTERFACE:
+      case VIRTUAL:
+        break;
+      default:
+        throw new Unimplemented("Invoke type " + invokeType + " is not yet supported.");
+    }
+  }
+
+  private boolean checkSignatures() {
+    List<com.debughelper.tools.r8.graph.DexType> sourceParams = new ArrayList<>();
+    if (receiver != null) {
+      sourceParams.add(receiver);
+    }
+    sourceParams.addAll(Lists.newArrayList(proto.parameters.values));
+
+    List<com.debughelper.tools.r8.graph.DexType> targetParams = new ArrayList<>();
+    if (targetReceiver != null) {
+      targetParams.add(targetReceiver);
+    }
+    targetParams.addAll(Lists.newArrayList(target.proto.parameters.values));
+
+    assert sourceParams.size() == targetParams.size();
+    for (int i = 0; i < sourceParams.size(); i++) {
+      com.debughelper.tools.r8.graph.DexType source = sourceParams.get(i);
+      com.debughelper.tools.r8.graph.DexType target = targetParams.get(i);
+
+      // We assume source is compatible with target if they both are classes.
+      // This check takes care of receiver widening conversion but does not
+      // many others, like conversion from an array to Object.
+      assert (source.isClassType() && target.isClassType()) || source == target;
+    }
+
+    assert this.proto.returnType == target.proto.returnType || castResult;
+    return true;
+  }
+
+  @Override
+  protected void prepareInstructions() {
+    // Prepare call arguments.
+    List<com.debughelper.tools.r8.ir.code.ValueType> argValueTypes = new ArrayList<>();
+    List<Integer> argRegisters = new ArrayList<>();
+
+    if (receiver != null) {
+      argValueTypes.add(com.debughelper.tools.r8.ir.code.ValueType.OBJECT);
+      argRegisters.add(getReceiverRegister());
+    }
+
+    DexType[] accessorParams = proto.parameters.values;
+    for (int i = 0; i < accessorParams.length; i++) {
+      argValueTypes.add(com.debughelper.tools.r8.ir.code.ValueType.fromDexType(accessorParams[i]));
+      argRegisters.add(getParamRegister(i));
+    }
+
+    // Method call to the target method.
+    add(builder -> builder.addInvoke(this.invokeType,
+        this.target, this.target.proto, argValueTypes, argRegisters));
+
+    // Does the method return value?
+    if (proto.returnType.isVoidType()) {
+      add(IRBuilder::addReturn);
+    } else {
+      com.debughelper.tools.r8.ir.code.ValueType valueType = ValueType.fromDexType(proto.returnType);
+      int tempValue = nextRegister(valueType);
+      add(builder -> builder.addMoveResult(tempValue));
+      if (this.proto.returnType != target.proto.returnType) {
+        add(builder -> builder.addCheckCast(tempValue, this.proto.returnType));
+      }
+      add(builder -> builder.addReturn(valueType, tempValue));
+    }
+  }
+}

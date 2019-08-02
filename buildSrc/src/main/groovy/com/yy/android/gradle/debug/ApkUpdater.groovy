@@ -104,6 +104,11 @@ class ApkUpdater implements Closeable {
         }
     }
 
+    void deleteFile(String path) {
+        apkZFileCreator.deleteFile(path)
+        println("delete apk files " + path)
+    }
+
     @Override
     void close() throws IOException {
         if (apkZFileCreator != null) {

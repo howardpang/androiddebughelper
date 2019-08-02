@@ -26,59 +26,56 @@ import org.apache.tools.ant.taskdefs.condition.Os
 
 class DebugHelper implements Plugin<DefaultSettings> {
     protected DefaultSettings settings
+    private static final String DEFAULT_MIN_SDK = "23"
+    private static final String DEFAULT_TARGET_SDK = "24"
     private File mDummyHostDir
-    private String mHostPackageName
-    private String mHostLaunchActivity
     private String mHostApk
-    private String mHostFlavor
-    private String mMinSdk = "23"
-    private String mTargetSdk = "24"
-    private boolean mUpdateJavaClass = true
-    private boolean mModifyApkDebuggable = true
+    private HostInfo mHostInfo
 
     void apply(DefaultSettings settings) {
         this.settings = settings
         settings.gradle.settingsEvaluated {
-            if (settings.hasProperty("hostPackageName")) {
-                mHostPackageName = settings.hostPackageName
-            }
-            if (settings.hasProperty("hostLaunchActivity")) {
-                mHostLaunchActivity = settings.hostLaunchActivity
-            }
             if (settings.hasProperty("hostApk")) {
                 mHostApk = settings.hostApk
             }
-            if (settings.hasProperty("hostFlavor")) {
-                mHostFlavor = settings.hostFlavor
-            }
-            if (settings.hasProperty("updateJavaClass")) {
-                mUpdateJavaClass = settings.updateJavaClass
-            }
-            if (settings.hasProperty("modifyApkDebuggable")) {
-                mModifyApkDebuggable = settings.modifyApkDebuggable
-            }
-
             if (mHostApk != null) {
                 if (!new File(mHostApk).exists()) {
                     throw new RuntimeException(" host apk not exist: ${mHostApk}")
                 }
             }
-
             String dummyHostName = "dummyHost"
             mDummyHostDir = new File(settings.rootDir, "${dummyHostName}")
-            extractHostInfo()
-            if (mHostPackageName == null) {
+            HostInfo hostInfo = getHostInfoFromSetting()
+            if (mDummyHostDir.exists()) {
+                if (hostInfo.mHostPackageName == null || hostInfo.mHostLaunchActivity == null) {
+                    try {
+                        File manifest = new File(mDummyHostDir, "src/main/AndroidManifest.xml")
+                        def manifestParser = new XmlParser(false, false).parse(manifest)
+                        hostInfo.mHostPackageName = manifestParser.@package
+                        hostInfo.mHostLaunchActivity = manifestParser.application.activity[0].@'android:name'
+                    }
+                    catch (Exception e) {
+                        println("getHostInfo " + e.toString())
+                    }
+                }
+            } else {
+                HostInfo apkHostInfo = getHostInfoFromApk()
+                hostInfo.update(apkHostInfo)
+            }
+            mHostInfo = hostInfo
+            if (mHostInfo.mHostPackageName == null) {
                 return
             }
-
-            println("host package name: " + mHostPackageName)
+            println("host package name: " + mHostInfo.mHostPackageName)
             println("host apk: " + mHostApk)
-            println("host flavor: " + mHostFlavor)
-            println("host launch activity: " + mHostLaunchActivity)
-            println("update java class: " + mUpdateJavaClass)
-            println("modify apk debuggable: " + mModifyApkDebuggable)
-
-            createDummyHost(settings, false, mDummyHostDir, mHostPackageName, mHostFlavor, mHostLaunchActivity, mMinSdk, mTargetSdk)
+            println("host flavor: " + mHostInfo.mHostFlavor)
+            println("host launch activity: " + mHostInfo.mHostLaunchActivity)
+            println("update java class: " + mHostInfo.mUpdateJavaClass)
+            println("modify apk debuggable: " + mHostInfo.mModifyApkDebuggable)
+            if (!mDummyHostDir.exists()) {
+                mDummyHostDir.mkdirs()
+                createDummyHost(settings, mDummyHostDir, mHostInfo)
+            }
             settings.include(":${dummyHostName}")
             settings.project(":${dummyHostName}").projectDir = mDummyHostDir
             boolean hookExternalBuild = true
@@ -106,8 +103,11 @@ class DebugHelper implements Plugin<DefaultSettings> {
                             }
                             cleanTask.doFirst {
                                 println("update dummyHost project")
-                                extractHostInfoFromApk()
-                                createDummyHost(settings, true, mDummyHostDir, mHostPackageName, mHostFlavor, mHostLaunchActivity, mMinSdk, mTargetSdk)
+                                HostInfo newHostInfo = getHostInfoFromSetting()
+                                HostInfo apkHostInfo = getHostInfoFromApk()
+                                newHostInfo.update(apkHostInfo)
+                                mHostInfo = newHostInfo
+                                createDummyHost(settings, mDummyHostDir, mHostInfo)
                             }
                         }
                     } else {
@@ -120,9 +120,13 @@ class DebugHelper implements Plugin<DefaultSettings> {
 
     private void hookDummyHost(Project p) {
         p.afterEvaluate {
-            p.fastDebug.hostApk = mHostApk
-            p.fastDebug.updateJavaClass = (mUpdateJavaClass && mHostApk != null)
-            p.fastDebug.modifyApkDebuggable = (mModifyApkDebuggable && mHostApk != null)
+            if (mHostInfo.mExcludeSo != null) {
+                String[] splits = mHostInfo.mExcludeSo.split(";")
+                p.debughelp.excludeSo = splits
+            }
+            p.debughelp.hostApk = mHostApk
+            p.debughelp.updateJavaClass = (mHostInfo.mUpdateJavaClass && mHostApk != null)
+            p.debughelp.modifyApkDebuggable = (mHostInfo.mModifyApkDebuggable && mHostApk != null)
         }
     }
 
@@ -188,17 +192,8 @@ class DebugHelper implements Plugin<DefaultSettings> {
         }
     }
 
-    void createDummyHost(DefaultSettings settings, boolean forceUpdate, File dummyHostDir, String hostPackageName, String flavor, String launchActivity, String minSdk, String targetSdk) {
-        if (dummyHostDir.exists()) {
-            if (!forceUpdate) {
-                return
-            }
-        } else {
-            dummyHostDir.mkdirs()
-        }
-
+    void createDummyHost(DefaultSettings settings, File dummyHostDir, HostInfo hostInfo) {
         println("create dummyHost project")
-
         List dependencies
         if (mHostApk != null) {
             dependencies = []
@@ -220,11 +215,11 @@ class DebugHelper implements Plugin<DefaultSettings> {
         pw.print("""apply plugin: 'com.android.application'
 apply plugin: 'com.ydq.android.gradle.debug.HostPlugin'
 android { 
-    compileSdkVersion ${targetSdk} 
+    compileSdkVersion ${hostInfo.mTargetSdk} 
     defaultConfig { 
-        applicationId "${hostPackageName}" 
-        minSdkVersion ${minSdk} 
-        targetSdkVersion ${targetSdk} 
+        applicationId "${hostInfo.mHostPackageName}" 
+        minSdkVersion ${hostInfo.mMinSdk} 
+        targetSdkVersion ${hostInfo.mTargetSdk} 
         versionCode 1 
         versionName "1.0" 
         externalNativeBuild {
@@ -248,11 +243,11 @@ android {
         doNotStrip "*/x86/*.so"
      }
 """)
-        if (flavor != null) {
+        if (hostInfo.mHostFlavor != null) {
             pw.println("""
     productFlavors {
         flavorDimensions 'default'
-        ${flavor} {
+        ${hostInfo.mHostFlavor} {
             dimension 'default'
         }
     }
@@ -283,12 +278,12 @@ android {
         pw = new PrintWriter(manifest.newWriter(false))
         pw.print("""<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="${hostPackageName}">
+    package="${hostInfo.mHostPackageName}">
 """)
-        if (launchActivity != null) {
+        if (hostInfo.mHostLaunchActivity != null) {
             pw.println("""
     <application>
-        <activity android:name="${launchActivity}">
+        <activity android:name="${hostInfo.mHostLaunchActivity}">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -301,11 +296,11 @@ android {
         pw.flush()
         pw.close()
 
-        if (launchActivity != null) {
-            int lastDotPos = launchActivity.lastIndexOf(".")
-            String launchActivityPackageName = launchActivity.substring(0, lastDotPos)
-            String launchActivityName = launchActivity.substring(lastDotPos + 1)
-            String launchActivityClassName = launchActivity.replace(".", "/")
+        if (hostInfo.mHostLaunchActivity != null) {
+            int lastDotPos = hostInfo.mHostLaunchActivity.lastIndexOf(".")
+            String launchActivityPackageName = hostInfo.mHostLaunchActivity.substring(0, lastDotPos)
+            String launchActivityName = hostInfo.mHostLaunchActivity.substring(lastDotPos + 1)
+            String launchActivityClassName = hostInfo.mHostLaunchActivity.replace(".", "/")
             File launchActivityClass = new File(srcMainDir, "java/${launchActivityClassName}.java")
             if (!launchActivityClass.parentFile.exists()) launchActivityClass.parentFile.mkdirs()
 
@@ -346,25 +341,37 @@ include \$(BUILD_SHARED_LIBRARY)
         dummy.createNewFile()
     }
 
-    private void extractHostInfo() {
-        if (mDummyHostDir.exists()) {
-            //First try to extract host info from dummyHost AndroidManifest.xml
-            try {
-                File manifest = new File(mDummyHostDir, "src/main/AndroidManifest.xml")
-                def manifestParser = new XmlParser(false, false).parse(manifest)
-                mHostPackageName = manifestParser.@package
-                mHostLaunchActivity = manifestParser.application.activity[0].@'android:name'
-            }
-            catch (Exception e) {
-                println("getHostInfo " + e.toString())
-            }
-        }else {
-            //Then try to extract host info from host apk
-            extractHostInfoFromApk()
+    private HostInfo getHostInfoFromSetting() {
+        HostInfo hostInfo = new HostInfo()
+        if (settings.hasProperty("hostPackageName")) {
+            hostInfo.mHostPackageName = settings.hostPackageName
         }
+        if (settings.hasProperty("hostLaunchActivity")) {
+            hostInfo.mHostLaunchActivity = settings.hostLaunchActivity
+        }
+        if (settings.hasProperty("hostFlavor")) {
+            hostInfo.mHostFlavor = settings.hostFlavor
+        }
+        if (settings.hasProperty("minSdkVersion")) {
+            hostInfo.mMinSdk = settings.minSdkVersion
+        }
+        if (settings.hasProperty("targetSdkVersion")) {
+            hostInfo.mTargetSdk = settings.targetSdkVersion
+        }
+        if (settings.hasProperty("updateJavaClass")) {
+            hostInfo.mUpdateJavaClass = settings.updateJavaClass
+        }
+        if (settings.hasProperty("modifyApkDebuggable")) {
+            hostInfo.mModifyApkDebuggable = settings.modifyApkDebuggable
+        }
+        if (settings.hasProperty("excludeSo")) {
+            hostInfo.mExcludeSo = settings.excludeSo
+        }
+        return hostInfo
     }
 
-    private void extractHostInfoFromApk() {
+    private HostInfo getHostInfoFromApk() {
+        HostInfo hostInfo = new HostInfo()
         if (mHostApk != null) {
             Properties properties = new Properties()
             properties.load(new File(settings.rootDir, 'local.properties').newDataInputStream())
@@ -433,23 +440,63 @@ include \$(BUILD_SHARED_LIBRARY)
                         }
                     }
                     println("extract host info from apk : ${packageName} >> ${launchActivity} >> ${sdkVersion} >> ${targetSdkVersion} >> ${nativeCode}")
+
                     if (packageName != null) {
-                        mHostPackageName = packageName
+                        hostInfo.mHostPackageName = packageName
                     }
                     if (launchActivity != null) {
-                        mHostLaunchActivity = launchActivity
+                        hostInfo.mHostLaunchActivity = launchActivity
                     }
                     if (sdkVersion != null) {
-                        mMinSdk = sdkVersion
+                        hostInfo.mMinSdk = sdkVersion
                     }
                     if (targetSdkVersion != null) {
-                        mTargetSdk = targetSdkVersion
+                        hostInfo.mTargetSdk = targetSdkVersion
                     }
                 } else {
                     println("run aapt cmd failure " + mHostApk)
                 }
             } else {
                 println("can't find aapt in " + sdkDir)
+            }
+        }
+        return hostInfo
+    }
+
+    private class HostInfo {
+        String mHostPackageName
+        String mHostLaunchActivity
+        String mHostFlavor
+        String mMinSdk
+        String mTargetSdk
+        boolean mUpdateJavaClass = true
+        boolean mModifyApkDebuggable = true
+        String mExcludeSo
+
+        void update(HostInfo hostInfo) {
+            if (mHostPackageName == null && hostInfo.mHostPackageName != null) {
+                mHostPackageName = hostInfo.mHostPackageName
+            }
+            if (mHostLaunchActivity == null && hostInfo.mHostLaunchActivity != null) {
+                mHostLaunchActivity = hostInfo.mHostLaunchActivity
+            }
+            if (mHostFlavor == null && hostInfo.mHostFlavor != null) {
+                mHostFlavor = hostInfo.mHostFlavor
+            }
+            if (mMinSdk == null && hostInfo.mMinSdk != null) {
+                mMinSdk = hostInfo.mMinSdk
+            }
+            if (mMinSdk == null) {
+                mMinSdk = DEFAULT_MIN_SDK
+            }
+            if (mTargetSdk == null && hostInfo.mTargetSdk != null) {
+                mTargetSdk = hostInfo.mTargetSdk
+            }
+            if (mTargetSdk == null) {
+                mTargetSdk = DEFAULT_TARGET_SDK
+            }
+            if (mExcludeSo == null && hostInfo.mExcludeSo != null) {
+                mExcludeSo = hostInfo.mExcludeSo
             }
         }
     }
