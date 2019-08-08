@@ -1,0 +1,12 @@
+# Changelog
+All notable changes to this project will be documented in this file.
+
+## [1.0.0] - 2019-07-04
+### init repo
+
+## [1.0.1] - 2019-08-08
+### Added
+- Add "excludeSo" setting.
+### Fixed
+- Optimize java class update,reduce the possibility of dex index overflow exception.
+
