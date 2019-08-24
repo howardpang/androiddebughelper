@@ -96,12 +96,15 @@ class CustomDexTask extends DefaultTask implements Context {
             return
         }
 
+        ProcessOutput output
+        Closeable ignored = output = outputHandler.createOutput()
+        DxContext dxContext = new DxContext(output.getStandardOutput(), output.getErrorOutput())
         def classesToUpdateInfo = [:] // map [dir, Set<classes>]
         if (!inputs.incremental) {
             classesDirs.each { dir ->
                 classesToUpdateInfo[dir] = project.fileTree(dir).exclude("**/R.class", "**/R\$*.class").files
             }
-            generateSecondlyDexToUpdate(classesToUpdateInfo)
+            generateSecondlyDexToUpdate(classesToUpdateInfo, dxContext)
         } else {
             inputs.outOfDate { change ->
                 if (!change.file.name.matches("R\\.class") && !change.file.name.matches("R\\\$.*\\.class")) {
@@ -117,9 +120,6 @@ class CustomDexTask extends DefaultTask implements Context {
         }
 
         FileTree dexes = project.fileTree(outputDir).include("*.dex")
-        ProcessOutput output
-        Closeable ignored = output = outputHandler.createOutput()
-        DxContext dxContext = new DxContext(output.getStandardOutput(), output.getErrorOutput())
         List<DexInfo> dexInfos = []
 
         // Copy the classes should to update to the appropriate directory
@@ -333,7 +333,7 @@ class CustomDexTask extends DefaultTask implements Context {
         }
     }
 
-    void generateSecondlyDexToUpdate(def classesToUpdateInfo) {
+    void generateSecondlyDexToUpdate(def classesToUpdateInfo, DxContext dxContext) {
         FileTree dexes = project.fileTree(outputDir).include("*.dex")
         File secondlyDexFileToUpdate = new File(outputDir, "classes${dexes.size() + 1}.dex")
         File classesListShouldUpdateFile = new File(dexInfoDir, "${classListShouldUpdateFileNameSuffix}classes${dexes.size() + 1}.txt")

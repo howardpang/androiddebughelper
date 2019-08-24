@@ -10,3 +10,7 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 - Optimize java class update,reduce the possibility of dex index overflow exception.
 
+## [1.0.2] - 2019-08-24
+### Fixed
+- Fixed update java class failed in certain condition
+
