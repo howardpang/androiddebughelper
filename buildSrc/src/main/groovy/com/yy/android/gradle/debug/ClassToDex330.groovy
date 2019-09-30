@@ -40,7 +40,8 @@ class ClassToDex330 implements ClassToDex {
     private DexArchiveBuilderTransform customDexTransform
 
     ClassToDex330(Context context, Project prj, ApplicationVariantImpl variant) {
-        customDexTransform = GradleApiAdapter.createDexArchiveBuilderTransform(context, prj, variant)
+        this.context = context
+        customDexTransform = GradleApiAdapter.createDexArchiveBuilderTransform(prj, variant)
     }
 
     void classToDex(File classDir, File outputDir) {
@@ -59,9 +60,6 @@ class ClassToDex330 implements ClassToDex {
         customDexTransform.transform(customTransformInvocation)
     }
 
-    private static String getProjectVariantId(VariantScope variantScope) {
-        return variantScope.getGlobalScope().getProject().getName() + ":" + variantScope.getFullVariantName();
-    }
 
     // ************************* sub class **************************************
 

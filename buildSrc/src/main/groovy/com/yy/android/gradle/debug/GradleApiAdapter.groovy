@@ -116,7 +116,7 @@ class GradleApiAdapter {
         return task
     }
 
-    static DexArchiveBuilderTransform createDexArchiveBuilderTransform(Context context, Project prj, ApplicationVariantImpl variant) {
+    static DexArchiveBuilderTransform createDexArchiveBuilderTransform(Project prj, ApplicationVariantImpl variant) {
         DexOptions dexOptions = prj.android.getDexOptions()
         VariantScope scope = variant.variantData.scope
         int minSdkVersion = scope
@@ -164,5 +164,9 @@ class GradleApiAdapter {
         VersionNumber currentVersion = VersionNumber.parse(curVersionString)
         VersionNumber targetVersion = VersionNumber.parse(targetVersionString)
         return currentVersion >= targetVersion
+    }
+
+    private static String getProjectVariantId(VariantScope variantScope) {
+        return variantScope.getGlobalScope().getProject().getName() + ":" + variantScope.getFullVariantName();
     }
 }
