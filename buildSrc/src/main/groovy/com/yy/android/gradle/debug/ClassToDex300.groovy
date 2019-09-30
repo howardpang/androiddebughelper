@@ -17,7 +17,6 @@ package com.yy.android.gradle.debug
 
 import com.android.build.gradle.internal.api.ApplicationVariantImpl
 import com.android.build.gradle.internal.scope.VariantScope
-import com.android.builder.core.AndroidBuilder
 import org.gradle.api.Project
 import com.android.ide.common.process.ProcessOutputHandler;
 
@@ -32,7 +31,7 @@ class ClassToDex300 implements ClassToDex {
         this.variant = variant
         this.outputHandler = outputHandler
         VariantScope scope = variant.variantData.scope
-        AndroidBuilder androidBuilder = scope.getGlobalScope().androidBuilder
+        def androidBuilder = scope.getGlobalScope().androidBuilder
         dexOptions = prj.android.getDexOptions()
         dexByteCodeConverter = androidBuilder.getDexByteCodeConverter()
         minSdkVersion = scope.getMinSdkVersion().getFeatureLevel()

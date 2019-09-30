@@ -18,11 +18,14 @@ package com.yy.android.gradle.debug
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.api.Task
+import org.gradle.api.internal.file.DefaultFileCollectionFactory
 import org.gradle.initialization.DefaultSettings
+import org.gradle.internal.concurrent.DefaultExecutorFactory
 import org.gradle.process.ExecResult
 import org.gradle.process.internal.DefaultExecAction
 import org.gradle.process.internal.DefaultExecActionFactory
 import org.apache.tools.ant.taskdefs.condition.Os
+import org.gradle.util.VersionNumber
 
 class DebugHelper implements Plugin<DefaultSettings> {
     protected DefaultSettings settings
@@ -76,6 +79,7 @@ class DebugHelper implements Plugin<DefaultSettings> {
                 mDummyHostDir.mkdirs()
                 createDummyHost(settings, mDummyHostDir, mHostInfo)
             }
+
             settings.include(":${dummyHostName}")
             settings.project(":${dummyHostName}").projectDir = mDummyHostDir
             boolean hookExternalBuild = true
@@ -132,7 +136,7 @@ class DebugHelper implements Plugin<DefaultSettings> {
 
     private void hookDependenciesProject(Project project) {
         project.afterEvaluate {
-            if (project.hasProperty("android") && project.android.class.name.find("com.android.build.gradle.LibraryExtension") != null) {
+            if (project.hasProperty("android") && project.android.class != null && project.android.class.name.find("com.android.build.gradle.LibraryExtension") != null) {
                 project.android.packagingOptions {
                     doNotStrip "*/armeabi/*.so"
                     doNotStrip "*/armeabi-v7a/*.so"
@@ -197,10 +201,10 @@ class DebugHelper implements Plugin<DefaultSettings> {
         List dependencies
         if (mHostApk != null) {
             dependencies = []
-            settings.rootProject.children.each { p ->
+            settings.projectDescriptorRegistry.allProjects.each { p ->
                 p.buildFile.find {
                     if (it == "apply plugin: 'com.android.library'") {
-                        dependencies.add(p.name)
+                        dependencies.add(p.path)
                         return true
                     } else if (it == "apply plugin: 'com.android.application'") {
                         return true
@@ -262,7 +266,7 @@ android {
         if (dependencies != null) {
             pw.println("dependencies {")
             dependencies.each {
-                pw.println("    implementation project(':${it}')")
+                pw.println("    implementation project('${it}')")
             }
             pw.println("}")
         }
@@ -394,7 +398,12 @@ include \$(BUILD_SHARED_LIBRARY)
             }
 
             if (aapt != null && aapt.exists()) {
-                DefaultExecAction execAction = new DefaultExecActionFactory(settings.fileResolver).newExecAction()
+                DefaultExecAction execAction
+                if (VersionNumber.parse(settings.gradle.gradleVersion) >= VersionNumber.parse("5.4.1")) {
+                    execAction = DefaultExecActionFactory.of(settings.fileResolver, new DefaultFileCollectionFactory(settings.fileResolver, null), new DefaultExecutorFactory()).newExecAction()
+                }else {
+                    execAction = new DefaultExecActionFactory(settings.fileResolver).newExecAction()
+                }
                 execAction.setIgnoreExitValue(true)
                 def stdout = new ByteArrayOutputStream()
                 execAction.standardOutput = stdout

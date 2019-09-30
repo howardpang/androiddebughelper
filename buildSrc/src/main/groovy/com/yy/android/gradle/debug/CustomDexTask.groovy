@@ -18,8 +18,6 @@ package com.yy.android.gradle.debug
 import com.android.build.api.transform.Context
 import com.android.build.gradle.internal.LoggerWrapper
 import com.android.build.gradle.internal.api.ApplicationVariantImpl
-import com.android.build.gradle.internal.scope.VariantScope
-import com.android.builder.core.AndroidBuilder
 import com.android.dex.DexIndexOverflowException
 import org.gradle.api.DefaultTask
 import org.gradle.api.tasks.InputFiles
@@ -41,7 +39,6 @@ import com.android.ide.common.process.ProcessOutput;
 import com.android.ide.common.process.ProcessOutputHandler
 import org.gradle.api.Project
 import org.gradle.api.file.FileTree
-import org.gradle.util.VersionNumber
 import org.gradle.workers.WorkerExecutor
 import com.android.build.gradle.BaseExtension
 
@@ -245,6 +242,12 @@ class CustomDexTask extends DefaultTask implements Context {
         return variantName
     }
 
+
+    //@Override
+    String getProjectName() {
+        return project.name
+    }
+
     @Override
     WorkerExecutor getWorkerExecutor() {
         return workerExecutor
@@ -416,29 +419,13 @@ class CustomDexTask extends DefaultTask implements Context {
         }
         this.baseExtension = project.android
         if (hostExtension.updateJavaClass) {
-            MessageReceiver errorReporter
-            VariantScope scope = applicationVariant.variantData.scope
-            AndroidBuilder androidBuilder = scope.getGlobalScope().androidBuilder
-            String curVersionString = Utils.androidGradleVersion()
-            VersionNumber currentVersion = VersionNumber.parse(curVersionString)
-            VersionNumber miniVersion = VersionNumber.parse("3.1.0")
-            if (currentVersion >= miniVersion) {
-                errorReporter = androidBuilder.getMessageReceiver()
-            } else {
-                errorReporter = androidBuilder.getErrorReporter()
-            }
+            MessageReceiver errorReporter = GradleApiAdapter.getErrorReporter(applicationVariant)
             outputHandler =
                     new ParsingProcessOutputHandler(
                             new ToolOutputParser(new DexParser(), Message.Kind.ERROR, loggerWrapper),
                             new ToolOutputParser(new DexParser(), loggerWrapper),
-                            errorReporter);
-
-            miniVersion = VersionNumber.parse("3.3.0")
-            if (currentVersion >= miniVersion) {
-                classToDex = new ClassToDex330(this, project, applicationVariant)
-            } else {
-                classToDex = new ClassToDex300(project, applicationVariant, outputHandler)
-            }
+                            errorReporter)
+            classToDex = GradleApiAdapter.createClassToDex(this, project, applicationVariant, outputHandler)
         }
     }
 

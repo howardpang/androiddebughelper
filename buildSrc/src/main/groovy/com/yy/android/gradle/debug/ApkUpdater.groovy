@@ -46,8 +46,8 @@ class ApkUpdater implements Closeable {
         String curVersionString = Utils.androidGradleVersion()
         VersionNumber currentVersion = VersionNumber.parse(curVersionString)
         if (sZFileOptionsClass == null) {
-            VersionNumber miniVersion = VersionNumber.parse("3.2.0")
-            if (currentVersion >= miniVersion) {
+            VersionNumber version320 = VersionNumber.parse("3.2.0")
+            if (currentVersion >= version320) {
                 sZFileOptionsClass = Class.forName("com.android.tools.build.apkzlib.zip.ZFileOptions")
                 sCreationDataClass = Class.forName("com.android.tools.build.apkzlib.zfile.ApkCreatorFactory\$CreationData")
                 sApkZFileCreatorFactoryClass = Class.forName("com.android.tools.build.apkzlib.zfile.ApkZFileCreatorFactory")
@@ -81,6 +81,7 @@ class ApkUpdater implements Closeable {
         options.setNoTimestamps(true)
         options.setCoverEmptySpaceUsingExtraField(true)
         options.setCompressor(executionCompressor)
+
         if(currentVersion >= VersionNumber.parse("3.4.0")) {
             def signingOptions = Optional.of(sSigningOptionsClass.builder()
                     .setKey(certificateInfo.getKey())
@@ -90,7 +91,18 @@ class ApkUpdater implements Closeable {
                     .setMinSdkVersion(minSdkVersion)
                     .setValidation(sSigningOptionsValidationClass.ALWAYS_VALIDATE)
                     .build());
-            creationData = sCreationDataClass.newInstance(apk, signingOptions, "apkUpdater", "apkUpdater", sNativeLibrariesPackagingMode_UNCOMPRESSED_AND_ALIGNED, noP)
+            if(currentVersion >= VersionNumber.parse("3.5.0")) {
+                creationData = sCreationDataClass.builder()
+                        .setSigningOptions(signingOptions.get())
+                        .setApkPath(apk)
+                        .setBuiltBy("apkUpdater")
+                        .setCreatedBy("apkUpdater")
+                        .setNativeLibrariesPackagingMode(sNativeLibrariesPackagingMode_UNCOMPRESSED_AND_ALIGNED)
+                        .build()
+
+            }else {
+                creationData = sCreationDataClass.newInstance(apk, signingOptions, "apkUpdater", "apkUpdater", sNativeLibrariesPackagingMode_UNCOMPRESSED_AND_ALIGNED, noP)
+            }
         }else {
             creationData = sCreationDataClass.newInstance(apk, certificateInfo.key, certificateInfo.certificate, signingConfig.isV1SigningEnabled(), signingConfig.isV2SigningEnabled(), "apkUpdater", "apkUpdater", minSdkVersion, sNativeLibrariesPackagingMode_UNCOMPRESSED_AND_ALIGNED, noP)
         }

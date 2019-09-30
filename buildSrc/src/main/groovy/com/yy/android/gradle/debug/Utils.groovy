@@ -15,12 +15,6 @@
  */
 package com.yy.android.gradle.debug
 
-import com.android.build.gradle.internal.scope.VariantScope
-import com.android.builder.core.AndroidBuilder
-import com.android.builder.profile.ProcessProfileWriter
-import org.gradle.api.Project
-import org.gradle.util.VersionNumber
-
 import java.lang.reflect.Field;
 
 class Utils  {

@@ -28,7 +28,6 @@ import org.gradle.api.initialization.Settings
 import org.gradle.api.invocation.Gradle
 import org.gradle.api.tasks.TaskState
 import org.gradle.api.Task
-import org.gradle.util.VersionNumber
 
 class HostPlugin implements Plugin<Project> {
     private Project project
@@ -42,32 +41,18 @@ class HostPlugin implements Plugin<Project> {
         if (curVersionString == null) {
             return
         }
-        VersionNumber currentVersion = VersionNumber.parse(curVersionString)
-        VersionNumber miniVersion = VersionNumber.parse("3.3.0")
         def variants = project.android.applicationVariants
         variants.whenObjectAdded { ApplicationVariantImpl variant ->
             if (variant.buildType.name == "debug") {
                 unzipHostApk = new File(project.buildDir, "hostApk")
                 File dummyApk = variant.outputs[0].outputFile
-                Task packageApplication
-                Task mergeResources
+                Task packageApplication = GradleApiAdapter.getPackageApplicationTask(variant)
+                Task mergeResources = GradleApiAdapter.getMergeResourcesTask(variant)
                 int minSdkVersion = variant.variantData.scope.getMinSdkVersion().getFeatureLevel()
-                if (currentVersion >= miniVersion) {
-                    packageApplication = variant.packageApplicationProvider.get()
-                    mergeResources = variant.mergeResourcesProvider.get()
-                } else {
-                    packageApplication = variant.packageApplication
-                    mergeResources = variant.mergeResources
-                }
-                Task mergeJniLibsTask = project.tasks.withType(TransformTask.class).find {
-                    it.transform.name == 'mergeJniLibs' && it.variantName == variant.name
-                }
                 Task processAndroidResourcesTask = project.tasks.withType(ProcessAndroidResources.class).find {
                     it.variantName == variant.name
                 }
-                Task stripDebugSymbolTask = project.tasks.withType(TransformTask.class).find {
-                    it.transform.name == 'stripDebugSymbol' && it.variantName == variant.name
-                }
+                Task stripDebugSymbolTask = GradleApiAdapter.getStripDebugSymbolTask(project, variant)
                 Task dexBuilderTask = project.tasks.withType(TransformTask.class).find {
                     it.transform.name == 'dexBuilder' && it.variantName == variant.name
                 }
@@ -79,7 +64,9 @@ class HostPlugin implements Plugin<Project> {
                         it.variantName == variant.name
                     }
                 }
-                stripDebugSymbolTask.enabled = false
+                if (stripDebugSymbolTask != null) {
+                    stripDebugSymbolTask.enabled = false
+                }
                 processAndroidResourcesTask.enabled = false
                 packageApplication.enabled = false
                 mergeResources.enabled = false
@@ -94,6 +81,7 @@ class HostPlugin implements Plugin<Project> {
                     return
                 }
 
+                List<File> jniFolders = GradleApiAdapter.getJniFolders(project, variant)
                 File customDexTaskOutputDir = new File(project.buildDir, "debughelp/hostFilesToUpdate")
                 File apkUpdateTaskOutputDir = new File(project.buildDir, "debughelp/output")
 
@@ -109,7 +97,7 @@ class HostPlugin implements Plugin<Project> {
                     updateTask.outputDir = apkUpdateTaskOutputDir
                     if (!updateTask.outputDir.exists()) updateTask.outputDir.mkdirs()
                     updateTask.inputDirs.add(customDexTaskOutputDir)
-                    updateTask.inputDirs.add(mergeJniLibsTask.streamOutputFolder)
+                    updateTask.inputDirs.addAll(jniFolders)
                     updateTask.configure(project, dummyApk, variant.signingConfig, minSdkVersion, hostExtension)
                 })
 
