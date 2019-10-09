@@ -15,6 +15,7 @@
  */
 package com.yy.android.gradle.debug
 
+import org.gradle.BuildResult
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.api.Task
@@ -88,7 +89,7 @@ class DebugHelper implements Plugin<DefaultSettings> {
             }
             println("hookExternalBuild: " + hookExternalBuild)
             if (hookExternalBuild) {
-                settings.gradle.beforeProject { p ->
+                settings.gradle.beforeProject { Project p ->
                     if (p.name == dummyHostName && mHostApk != null) {
                         hookDummyHost(p)
                     } else if (p.name == settings.rootProject.name && p.projectDir == settings.rootDir) {
@@ -106,20 +107,30 @@ class DebugHelper implements Plugin<DefaultSettings> {
                                 cleanTask = p.tasks.create("clean")
                             }
                             cleanTask.doFirst {
-                                println("update dummyHost project")
-                                HostInfo newHostInfo = getHostInfoFromSetting()
-                                HostInfo apkHostInfo = getHostInfoFromApk()
-                                newHostInfo.update(apkHostInfo)
-                                mHostInfo = newHostInfo
-                                createDummyHost(settings, mDummyHostDir, mHostInfo)
+                                updateDummyHost()
                             }
                         }
                     } else {
                         hookDependenciesProject(p)
                     }
                 }
+                settings.gradle.buildFinished { BuildResult result->
+                    if (result.action == "Configure" && result.failure != null && result.failure.getMessage().indexOf("project ':${dummyHostName}'")) {
+                        //Try to update dummy host because user may update host info
+                        updateDummyHost()
+                    }
+                }
             }
         }
+    }
+
+    private void updateDummyHost() {
+        println("update dummyHost project")
+        HostInfo newHostInfo = getHostInfoFromSetting()
+        HostInfo apkHostInfo = getHostInfoFromApk()
+        newHostInfo.update(apkHostInfo)
+        mHostInfo = newHostInfo
+        createDummyHost(settings, mDummyHostDir, mHostInfo)
     }
 
     private void hookDummyHost(Project p) {
