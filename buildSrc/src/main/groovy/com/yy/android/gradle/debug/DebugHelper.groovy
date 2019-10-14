@@ -237,26 +237,7 @@ android {
         targetSdkVersion ${hostInfo.mTargetSdk} 
         versionCode 1 
         versionName "1.0" 
-        externalNativeBuild {
-            ndkBuild {
-                //abiFilters "armeabi-v7a"
-            }
-        }
     } 
-    
-    /*
-    externalNativeBuild {
-        ndkBuild {
-            path 'Android.mk'
-        }
-    }
-    */
-    
-    packagingOptions {
-        doNotStrip "*/armeabi/*.so"
-        doNotStrip "*/armeabi-v7a/*.so"
-        doNotStrip "*/x86/*.so"
-     }
 """)
         if (hostInfo.mHostFlavor != null) {
             pw.println("""
@@ -270,7 +251,6 @@ android {
         }
         pw.println("""
 }
-
 
 """)
 
