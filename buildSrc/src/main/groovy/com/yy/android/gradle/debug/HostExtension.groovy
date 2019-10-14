@@ -20,4 +20,5 @@ class HostExtension {
     public boolean updateJavaClass = true
     public boolean modifyApkDebuggable = true
     public String[] excludeSo
+    public List<String> filesShouldDelete = []
 }

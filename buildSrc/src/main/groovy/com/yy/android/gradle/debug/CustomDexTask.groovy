@@ -51,7 +51,7 @@ import java.nio.file.Files
  * 2. Generate classes list files according to the dex;
  * 3. Divide the classes according the classes list files
  * 3. Dex the divided classes into new dex separately
- * 4. merge the original dex with new dex
+ * 4. Merge the original dex with new dex
  * 5. If DexIndexOverflowException occur when merge the main dex, try to split the main dex into two, then try to merge again
  */
 
@@ -221,11 +221,9 @@ class CustomDexTask extends DefaultTask implements Context {
                                 //Can't split dex
                                 throw new TransformException("You have add too much classes to update and exceed the limitation 65536")
                             }
-
                         } else if (!mainDexClassesListFile.exists()) {
                             mainDexClassesListFile.createNewFile()
                         }
-
                     } else {
                         throw new TransformException("You have add too much classes to update and exceed the limitation 65536")
                     }
@@ -338,8 +336,9 @@ class CustomDexTask extends DefaultTask implements Context {
 
     void generateSecondlyDexToUpdate(def classesToUpdateInfo, DxContext dxContext) {
         FileTree dexes = project.fileTree(outputDir).include("*.dex")
-        File secondlyDexFileToUpdate = new File(outputDir, "classes${dexes.size() + 1}.dex")
-        File classesListShouldUpdateFile = new File(dexInfoDir, "${classListShouldUpdateFileNameSuffix}classes${dexes.size() + 1}.txt")
+        int originalDexSize = dexes.size()
+        int secondlyDexIndex  = originalDexSize + 1
+        File classesListShouldUpdateFile = new File(dexInfoDir, "classesListShouldUpdate.txt")
         def classesListShouldUpdatePw = new PrintWriter(classesListShouldUpdateFile.newWriter(false))
         boolean shouldSplitDex = false
         File mainDexFile = new File(outputDir, "classes.dex")
@@ -366,6 +365,7 @@ class CustomDexTask extends DefaultTask implements Context {
         }
         classesListShouldUpdatePw.flush()
         classesListShouldUpdatePw.close()
+
         if (shouldSplitDex) {
             File splitDir = new File(dexInfoDir, "split")
             final List<File> dexShouldMerge = []
@@ -383,9 +383,40 @@ class CustomDexTask extends DefaultTask implements Context {
                             into outputDir
                             rename newSecondlyDex.name, dexFile.name
                         }
+                    }else {
+                        Dex dex = new Dex(new File(splitOutputDir, "classes.dex"))
+                        ClassDef classDef = dex.classDefs().first()
+                        String typeName = dex.typeNames().get(classDef.typeIndex)
+                        typeName = typeName.substring(1, typeName.length() - 1) + ".class"
+                        def result = classesListShouldUpdateFile.find { String line ->
+                            return line == typeName
+                        }
+                        // the dexFile only contain the classes should update
+                        if (result) {
+                            dexShouldMerge.add(new File(splitOutputDir, "classes.dex"))
+                            dexFile.delete()
+                            secondlyDexIndex--
+                        }
                     }
                 }
             }
+
+            if (originalDexSize  > secondlyDexIndex) {
+                //update dexes
+                int dexIndex = 2
+                dexes.each { dexFile ->
+                    if (dexFile.name != "classes.dex") {
+                        dexFile.renameTo(new File(dexFile.parentFile, "classes${dexIndex}.dex"))
+                        dexIndex++
+                    }
+                }
+                for (int i = (secondlyDexIndex + 1); i < (originalDexSize + 1); i++) {
+                    hostExtension.filesShouldDelete.add("classes${i}.dex")
+                }
+            }
+
+            File secondlyDexFileToUpdate = new File(outputDir, "classes${secondlyDexIndex}.dex")
+            classesListShouldUpdateFile.renameTo(new File(dexInfoDir, "${classListShouldUpdateFileNameSuffix}classes${secondlyDexIndex}.txt"))
 
             if (dexShouldMerge.size() > 1) {
                 Dex[] dexesToMerge = new Dex[dexShouldMerge.size()]

@@ -35,7 +35,6 @@ class ApkUpdateTask extends DefaultTask {
     private int minSdkVersion
     HostExtension hostExtension
     File hostLibDir
-    List<String> hostOriginalCertificates = []
 
     @InputFiles
     List<File> inputDirs
@@ -45,6 +44,7 @@ class ApkUpdateTask extends DefaultTask {
 
     @TaskAction
     void execute(IncrementalTaskInputs inputs) {
+        List<String> hostOriginalCertificates = []
         Map<File, String> filesToUpdate = [:]
         if (!inputs.incremental) {
             apkToUpdate.delete()
@@ -126,6 +126,9 @@ class ApkUpdateTask extends DefaultTask {
         apkUpdater.updateFiles(filesToUpdate)
         //Delete original certificates
         hostOriginalCertificates.each {
+            apkUpdater.deleteFile(it)
+        }
+        hostExtension.filesShouldDelete.each {
             apkUpdater.deleteFile(it)
         }
         apkUpdater.close()
