@@ -18,8 +18,9 @@ package com.yy.android.gradle.debug
 import com.android.build.gradle.internal.api.ApplicationVariantImpl
 import com.android.build.gradle.internal.pipeline.TransformTask
 import com.android.build.gradle.internal.scope.VariantScope
-import com.android.build.gradle.internal.transforms.DexArchiveBuilderTransform
-import com.android.build.gradle.internal.transforms.DexArchiveBuilderTransformBuilder
+import com.android.build.gradle.internal.tasks.AndroidVariantTask
+import com.android.build.gradle.internal.tasks.DexMergingTask
+
 import com.android.ide.common.blame.MessageReceiver
 import com.android.ide.common.process.ProcessOutputHandler
 import org.gradle.api.Project
@@ -31,6 +32,8 @@ import com.android.build.gradle.options.IntegerOption;
 import com.android.build.gradle.options.ProjectOptions
 import com.android.build.gradle.options.SyncOptions;
 import com.android.builder.core.DexOptions
+import org.gradle.workers.WorkerExecutor
+
 import java.util.function.Supplier
 
 class GradleApiAdapter {
@@ -47,9 +50,11 @@ class GradleApiAdapter {
         return errorReporter
     }
 
-    static ClassToDex createClassToDex(Context context, Project project, ApplicationVariantImpl variant, ProcessOutputHandler outputHandler) {
+    static ClassToDex createClassToDex(Context context, Project project, ApplicationVariantImpl variant, ProcessOutputHandler outputHandler, WorkerExecutor workerExecutor) {
         ClassToDex classToDex
-        if (isGradleVersionGreaterOrEqualTo("3.3.0")) {
+        if (isGradleVersionGreaterOrEqualTo("3.6.0")) {
+            classToDex = new ClassToDex360(context, project, variant, workerExecutor)
+        } else if (isGradleVersionGreaterOrEqualTo("3.3.0")) {
             classToDex = new ClassToDex330(context, project, variant)
         } else {
             classToDex = new ClassToDex300(project, variant, outputHandler)
@@ -116,7 +121,40 @@ class GradleApiAdapter {
         return task
     }
 
-    static DexArchiveBuilderTransform createDexArchiveBuilderTransform(Project prj, ApplicationVariantImpl variant) {
+    static Task getDexBuilderTask(Project project, ApplicationVariantImpl variant) {
+        Task task
+        if (isGradleVersionGreaterOrEqualTo("3.6.0")) {
+            task = project.tasks.withType(AndroidVariantTask.class).find {
+                it.name == "dexBuilder${variant.name.capitalize()}" && it.variantName == variant.name
+            }
+        } else {
+            task = project.tasks.withType(TransformTask.class).find {
+                it.transform.name == 'dexBuilder' && it.variantName == variant.name
+            }
+        }
+        return task
+    }
+
+    static Set<Task> getDexMergerTasks(Project project, ApplicationVariantImpl variant) {
+        Set<Task> tasks
+        if (isGradleVersionGreaterOrEqualTo("3.6.0")) {
+            tasks = project.tasks.withType(AndroidVariantTask.class).findAll {
+                it.name == "dexMerger${variant.name.capitalize()}" && it.variantName == variant.name
+            }
+        } else {
+            tasks = project.tasks.withType(TransformTask.class).findAll {
+                it.transform.name == 'dexMerger' && it.variantName == variant.name
+            }
+        }
+        if (tasks.empty) {
+            tasks = project.tasks.withType(DexMergingTask.class).findAll {
+                it.variantName == variant.name
+            }
+        }
+        return tasks
+    }
+
+    static Object createDexArchiveBuilderTransform(Project prj, ApplicationVariantImpl variant) {
         DexOptions dexOptions = prj.android.getDexOptions()
         VariantScope scope = variant.variantData.scope
         int minSdkVersion = scope
@@ -125,7 +163,9 @@ class GradleApiAdapter {
                 .getFeatureLevel()
         ProjectOptions projectOptions = new ProjectOptions(prj)
 
-        DexArchiveBuilderTransformBuilder dexArchiveBuilderTransformBuilder = new DexArchiveBuilderTransformBuilder()
+        Class<?> dexArchiveBuilderTransformBuilderClass = Class.forName("com.android.build.gradle.internal.transforms.DexArchiveBuilderTransformBuilder")
+
+        def dexArchiveBuilderTransformBuilder = dexArchiveBuilderTransformBuilderClass.newInstance()
                 .setDexOptions((DexOptions) dexOptions)
                 .setMessageReceiver(scope.getGlobalScope().getMessageReceiver())
                 .setUserLevelCache(scope.getGlobalScope().getBuildCache())

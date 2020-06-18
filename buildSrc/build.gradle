@@ -1,4 +1,9 @@
-apply plugin: 'groovy'
+plugins {
+    id 'groovy'
+    id 'org.jetbrains.kotlin.jvm' version '1.2.51'
+    id 'java'
+}
+
 repositories {
     google()
     jcenter()
@@ -10,8 +15,13 @@ dependencies {
 }
 
 dependencies {
-    compile 'com.android.tools.build:gradle:3.5.0'
+    compile 'com.android.tools.build:gradle:3.6.0'
     //compile 'com.android.tools.build:builder:3.1.0'
+}
+
+compileGroovy {
+    dependsOn tasks.getByPath('compileKotlin')
+    classpath += files(compileKotlin.destinationDir)
 }
 
 task generateBuildConfig {

@@ -456,7 +456,7 @@ class CustomDexTask extends DefaultTask implements Context {
                             new ToolOutputParser(new DexParser(), Message.Kind.ERROR, loggerWrapper),
                             new ToolOutputParser(new DexParser(), loggerWrapper),
                             errorReporter)
-            classToDex = GradleApiAdapter.createClassToDex(this, project, applicationVariant, outputHandler)
+            classToDex = GradleApiAdapter.createClassToDex(this, project, applicationVariant, outputHandler, workerExecutor)
         }
     }
 

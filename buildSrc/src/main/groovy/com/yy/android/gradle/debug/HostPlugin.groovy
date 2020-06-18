@@ -16,9 +16,7 @@
 package com.yy.android.gradle.debug
 
 import com.android.build.gradle.internal.api.ApplicationVariantImpl
-import com.android.build.gradle.internal.tasks.DexMergingTask
 import com.android.build.gradle.tasks.ProcessAndroidResources
-import com.android.build.gradle.internal.pipeline.TransformTask
 import org.gradle.BuildListener
 import org.gradle.BuildResult
 import org.gradle.api.Project
@@ -53,17 +51,8 @@ class HostPlugin implements Plugin<Project> {
                     it.variantName == variant.name
                 }
                 Task stripDebugSymbolTask = GradleApiAdapter.getStripDebugSymbolTask(project, variant)
-                Task dexBuilderTask = project.tasks.withType(TransformTask.class).find {
-                    it.transform.name == 'dexBuilder' && it.variantName == variant.name
-                }
-                Set<Task> dexMergerTasks = project.tasks.withType(TransformTask.class).findAll {
-                    it.transform.name == 'dexMerger' && it.variantName == variant.name
-                }
-                if (dexMergerTasks.empty) {
-                    dexMergerTasks = project.tasks.withType(DexMergingTask.class).findAll {
-                        it.variantName == variant.name
-                    }
-                }
+                Task dexBuilderTask = GradleApiAdapter.getDexBuilderTask(project, variant)
+                Set<Task> dexMergerTasks = GradleApiAdapter.getDexMergerTasks(project, variant)
                 if (stripDebugSymbolTask != null) {
                     stripDebugSymbolTask.enabled = false
                 }

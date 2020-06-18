@@ -24,11 +24,9 @@ import com.android.build.api.transform.DirectoryInput
 import com.android.build.api.transform.TransformInvocation;
 import com.android.build.api.transform.TransformOutputProvider
 import com.android.build.api.transform.Format
-import com.android.build.gradle.internal.transforms.DexArchiveBuilderTransform
 import com.android.build.gradle.internal.pipeline.TransformManager
 import com.android.build.gradle.internal.pipeline.IntermediateFolderUtils
 import com.android.build.gradle.internal.pipeline.TransformInvocationBuilder
-import com.android.build.gradle.internal.scope.VariantScope
 import com.android.build.gradle.internal.api.ApplicationVariantImpl
 import com.android.utils.FileUtils;
 import org.gradle.api.Project;
@@ -37,7 +35,7 @@ import com.google.common.base.MoreObjects;
 
 class ClassToDex330 implements ClassToDex {
     private Context context
-    private DexArchiveBuilderTransform customDexTransform
+    private def customDexTransform
 
     ClassToDex330(Context context, Project prj, ApplicationVariantImpl variant) {
         this.context = context

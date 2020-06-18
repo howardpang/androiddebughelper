@@ -20,3 +20,6 @@ All notable changes to this project will be documented in this file.
 ### Optimized
 - Optimize dummy host project configure
 
+## [1.0.4] - 2020-6-18
+### Added
+- Support android gradle plugin 3.6.2
