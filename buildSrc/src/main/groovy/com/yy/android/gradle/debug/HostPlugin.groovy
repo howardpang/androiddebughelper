@@ -16,6 +16,7 @@
 package com.yy.android.gradle.debug
 
 import com.android.build.gradle.internal.api.ApplicationVariantImpl
+import com.android.build.gradle.internal.pipeline.TransformTask
 import com.android.build.gradle.tasks.ProcessAndroidResources
 import org.gradle.BuildListener
 import org.gradle.BuildResult
@@ -39,6 +40,9 @@ class HostPlugin implements Plugin<Project> {
         if (curVersionString == null) {
             return
         }
+        CustomTransform customTransform = new CustomTransform()
+        project.android.registerTransform(customTransform)
+
         def variants = project.android.applicationVariants
         variants.whenObjectAdded { ApplicationVariantImpl variant ->
             if (variant.buildType.name == "debug") {
@@ -46,12 +50,16 @@ class HostPlugin implements Plugin<Project> {
                 File dummyApk = variant.outputs[0].outputFile
                 Task packageApplication = GradleApiAdapter.getPackageApplicationTask(variant)
                 Task mergeResources = GradleApiAdapter.getMergeResourcesTask(variant)
-                int minSdkVersion = variant.variantData.scope.getMinSdkVersion().getFeatureLevel()
+                Task javaCompileTask = GradleApiAdapter.getJavaCompileTask(variant)
+                int minSdkVersion = variant.getMergedFlavor().minSdkVersion.getApiLevel()
                 Task processAndroidResourcesTask = project.tasks.withType(ProcessAndroidResources.class).find {
                     it.variantName == variant.name
                 }
                 Task stripDebugSymbolTask = GradleApiAdapter.getStripDebugSymbolTask(project, variant)
-                Task dexBuilderTask = GradleApiAdapter.getDexBuilderTask(project, variant)
+                Map<Task, File> dexBuilderTaskInfo = GradleApiAdapter.getDexBuilderTaskInfo(project, variant)
+                Task dexBuilderTask = dexBuilderTaskInfo.entrySet()[0].key
+                File dexBuilderOutputDir = dexBuilderTaskInfo.entrySet()[0].value
+
                 Set<Task> dexMergerTasks = GradleApiAdapter.getDexMergerTasks(project, variant)
                 if (stripDebugSymbolTask != null) {
                     stripDebugSymbolTask.enabled = false
@@ -59,7 +67,6 @@ class HostPlugin implements Plugin<Project> {
                 processAndroidResourcesTask.enabled = false
                 packageApplication.enabled = false
                 mergeResources.enabled = false
-                dexBuilderTask.enabled = false
                 if (dexMergerTasks != null) {
                     dexMergerTasks.each {
                         it.enabled = false
@@ -71,31 +78,82 @@ class HostPlugin implements Plugin<Project> {
                 }
 
                 List<File> jniFolders = GradleApiAdapter.getJniFolders(project, variant)
-                File customDexTaskOutputDir = new File(project.buildDir, "debughelp/hostFilesToUpdate")
+                File dexUpdateTaskOutputDir = new File(project.buildDir, "debughelp/hostFilesToUpdate")
                 File apkUpdateTaskOutputDir = new File(project.buildDir, "debughelp/output")
+                File collectSubPrjClassTaskOutputDir = new File(project.buildDir, "debughelp/collectClassTask/${variant.name}")
 
-                CustomDexTask customDexTask = project.task("customDex${variant.name.capitalize()}", type: CustomDexTask.class, { CustomDexTask dexTask ->
-                    dexTask.classesDirs = []
-                    dexTask.outputDir = customDexTaskOutputDir
+                CollectSubPrjClassTask collectSubPrjClassTask = project.task("collectSubPrjClass${variant.name.capitalize()}", type: CollectSubPrjClassTask.class, { CollectSubPrjClassTask task ->
+                    task.outputDir = collectSubPrjClassTaskOutputDir
+                    if (!task.outputDir.exists()) task.outputDir.mkdirs()
+                    task.configure(variant, hostExtension, customTransform)
+                })
+                //Delay to configure collectSubPrjClassTask classDirs, because some sub project will resolve later than host project
+                variant.preBuild.doFirst {
+                    List<File> classDirs = []
+                    DependencyUtils.collectDependencyProjectClassesDirs(project, variant.name, classDirs)
+                    collectSubPrjClassTask.classesDirs = project.files(classDirs)
+                }
+
+                DexUpdateTask dexUpdateTask = project.task("dexUpdate${variant.name.capitalize()}", type: DexUpdateTask.class, { DexUpdateTask dexTask ->
+                    dexTask.dexDirToUpdate = dexBuilderOutputDir
+                    dexTask.outputDir = dexUpdateTaskOutputDir
                     if (!dexTask.outputDir.exists()) dexTask.outputDir.mkdirs()
-                    DependencyUtils.collectDependencyProjectClassesDirs(project, variant.name, dexTask.classesDirs)
-                    dexTask.configure(project, variant, hostExtension)
+                    dexTask.configure(project, variant, hostExtension, minSdkVersion)
                 })
                 ApkUpdateTask apkUpdateTask = project.task("apkUpdate${variant.name.capitalize()}", type: ApkUpdateTask.class, { ApkUpdateTask updateTask ->
                     updateTask.inputDirs = []
                     updateTask.outputDir = apkUpdateTaskOutputDir
                     if (!updateTask.outputDir.exists()) updateTask.outputDir.mkdirs()
-                    updateTask.inputDirs.add(customDexTaskOutputDir)
+                    updateTask.inputDirs.add(dexUpdateTaskOutputDir)
                     updateTask.inputDirs.addAll(jniFolders)
-                    updateTask.configure(project, dummyApk, variant.signingConfig, minSdkVersion, hostExtension)
+                    updateTask.configure(project, dummyApk, variant.signingConfig, minSdkVersion, hostExtension, variant.applicationId)
                 })
 
-                apkUpdateTask.dependsOn customDexTask
+                Task customTransformTask = project.tasks.withType(TransformTask.class).find {
+                    it.transform.class == CustomTransform.class && it.variantName == variant.name
+                }
+
+                extractFilesFromHostApk(hostExtension, dexUpdateTaskOutputDir)
+
+                if (!hostExtension.updateJavaClass) {
+                    collectSubPrjClassTask.enabled = false
+                    dexBuilderTask.enabled = false
+                    dexUpdateTask.enabled = false
+                }
+                collectSubPrjClassTask.dependsOn javaCompileTask
+                customTransformTask.dependsOn collectSubPrjClassTask
+                dexUpdateTask.dependsOn dexBuilderTask
+                apkUpdateTask.dependsOn dexUpdateTask
                 packageApplication.finalizedBy apkUpdateTask
             }
         }
     }
 
+    void extractFilesFromHostApk(HostExtension hostExtension, File outputDir) {
+        // extract dex and manifest from host apk
+        File manifest = new File(outputDir, "AndroidManifest.xml")
+        if (manifest.exists()) {
+            return
+        }
+        if (hostExtension.updateJavaClass) {
+            project.copy {
+                from project.zipTree(hostExtension.hostApk)
+                into outputDir
+                include "*.dex"
+                include "AndroidManifest.xml"
+            }
+        } else {
+            project.copy {
+                from project.zipTree(hostExtension.hostApk)
+                into outputDir
+                include "AndroidManifest.xml"
+            }
+        }
+
+        if (hostExtension.modifyApkDebuggable) {
+            ManifestEditor.modifyAndroidManifestToDebuggable(manifest)
+        }
+    }
 
     class BuildTimeListener implements TaskExecutionListener, BuildListener {
         private long beforeMS
@@ -141,7 +199,7 @@ class HostPlugin implements Plugin<Project> {
             println "Build Task spend total time: ${mins} mins ${second} secs"
         }
 
-        @Override
+        //@Override
         void buildStarted(Gradle gradle) {}
 
         @Override

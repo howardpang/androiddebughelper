@@ -19,14 +19,11 @@ import org.gradle.BuildResult
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.api.Task
-import org.gradle.api.internal.file.DefaultFileCollectionFactory
 import org.gradle.initialization.DefaultSettings
-import org.gradle.internal.concurrent.DefaultExecutorFactory
 import org.gradle.process.ExecResult
 import org.gradle.process.internal.DefaultExecAction
-import org.gradle.process.internal.DefaultExecActionFactory
 import org.apache.tools.ant.taskdefs.condition.Os
-import org.gradle.util.VersionNumber
+import org.gradle.process.internal.ExecActionFactory
 
 class DebugHelper implements Plugin<DefaultSettings> {
     protected DefaultSettings settings
@@ -239,6 +236,14 @@ android {
         versionName "1.0" 
     } 
 """)
+        if (hostInfo.mSupportJava8) {
+            pw.println("""
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+""")
+        }
         if (hostInfo.mHostFlavor != null) {
             pw.println("""
     productFlavors {
@@ -362,6 +367,9 @@ include \$(BUILD_SHARED_LIBRARY)
         if (settings.hasProperty("excludeSo")) {
             hostInfo.mExcludeSo = settings.excludeSo
         }
+        if (settings.hasProperty("supportJava8")) {
+            hostInfo.mSupportJava8 = settings.supportJava8
+        }
         return hostInfo
     }
 
@@ -389,16 +397,12 @@ include \$(BUILD_SHARED_LIBRARY)
             }
 
             if (aapt != null && aapt.exists()) {
-                DefaultExecAction execAction
-                if (VersionNumber.parse(settings.gradle.gradleVersion) >= VersionNumber.parse("5.4.1")) {
-                    execAction = DefaultExecActionFactory.of(settings.fileResolver, new DefaultFileCollectionFactory(settings.fileResolver, null), new DefaultExecutorFactory()).newExecAction()
-                }else {
-                    execAction = new DefaultExecActionFactory(settings.fileResolver).newExecAction()
-                }
+                DefaultExecAction execAction = settings.gradle.getServices().get(ExecActionFactory.class).newExecAction()
                 execAction.setIgnoreExitValue(true)
                 def stdout = new ByteArrayOutputStream()
                 execAction.standardOutput = stdout
                 execAction.errorOutput = stdout
+                execAction.workingDir = settings.rootDir
                 execAction.commandLine(aapt.path, "dump", "badging", mHostApk)
                 ExecResult result = execAction.execute()
                 if (result.exitValue == 0) {
@@ -472,6 +476,7 @@ include \$(BUILD_SHARED_LIBRARY)
         boolean mUpdateJavaClass = true
         boolean mModifyApkDebuggable = true
         String mExcludeSo
+        boolean mSupportJava8 = true
 
         void update(HostInfo hostInfo) {
             if (mHostPackageName == null && hostInfo.mHostPackageName != null) {

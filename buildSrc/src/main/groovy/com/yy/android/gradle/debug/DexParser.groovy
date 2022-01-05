@@ -15,6 +15,6 @@
  */
 package com.yy.android.gradle.debug
 
-interface ClassToDex {
-    void classToDex(File classDir, File outputDir)
+interface DexParser {
+    Set<String> getTypeList(File dexFile)
 }

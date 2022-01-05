@@ -19,6 +19,7 @@ import com.android.builder.model.SigningConfig
 import org.gradle.api.DefaultTask
 import org.gradle.api.Project
 import org.gradle.api.tasks.InputFiles
+import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.TaskAction
 import org.gradle.api.tasks.incremental.IncrementalTaskInputs
@@ -29,12 +30,18 @@ import java.util.zip.ZipFile
 class ApkUpdateTask extends DefaultTask {
     private static final String[] APP_ABIS = ["armeabi", "armeabi-v7a", "x86", "mips", "arm64-v8a", "x86_64", "mips64"]
     private static final String certificatesSuffixReg = "^.*?\\.(SF|RSA|DSA)\$"
-    private Project project
+    @Internal
+    String appId
+    @Internal
+    Project project
+    @Internal
     File apkToUpdate
     private SigningConfig signingConfig
     private int minSdkVersion
+    @Internal
     HostExtension hostExtension
-    File hostLibDir
+    @Internal
+    File hostNativeLibDir
 
     @InputFiles
     List<File> inputDirs
@@ -48,8 +55,8 @@ class ApkUpdateTask extends DefaultTask {
         Map<File, String> filesToUpdate = [:]
         if (!inputs.incremental) {
             apkToUpdate.delete()
-            hostLibDir.deleteDir()
-            hostLibDir.mkdirs()
+            hostNativeLibDir.deleteDir()
+            hostNativeLibDir.mkdirs()
             ZipFile zipFile = new ZipFile(hostExtension.hostApk)
             Set<String> abis = []
             def entries = zipFile.entries()
@@ -61,7 +68,7 @@ class ApkUpdateTask extends DefaultTask {
                         String abi = ze.name.substring(4, pos)
                         String result = APP_ABIS.find { abi == it }
                         if (result != null) {
-                            File abiDir = new File(hostLibDir, result)
+                            File abiDir = new File(hostNativeLibDir, result)
                             if (abiDir.mkdirs()) {
                                 abis.add(result)
                             }
@@ -93,7 +100,7 @@ class ApkUpdateTask extends DefaultTask {
             }
         }else {
             Set<String> abis = []
-            hostLibDir.eachFile {
+            hostNativeLibDir.eachFile {
                 abis.add(it.name)
             }
             inputs.outOfDate { change ->
@@ -135,15 +142,51 @@ class ApkUpdateTask extends DefaultTask {
         //Note!!! we must output a file to outputDir, otherwise, the incremental task can't execute correctly
         File tmp = new File(outputDir, "tmp.txt")
         tmp.createNewFile()
+        if (GradleApiAdapter.isGradleVersionGreaterOrEqualTo("7.0.0")) {
+            createOutputMetadataJson(appId, apkToUpdate.name)
+        }
     }
 
-    void configure(Project prj, File apk, SigningConfig signingConfig, int minSdkVersion, HostExtension hostExtension ) {
+    void createOutputMetadataJson(String appId, String apkName) {
+        //If there no 'output-metadata.json' file, AS won't install apk to device
+        File jsonFile = new File(apkToUpdate.parentFile, "output-metadata.json")
+        if (jsonFile.exists()) {
+            return
+        }
+        def pw = new PrintWriter(jsonFile.newWriter(false))
+        pw.print("""{
+  "version": 3,
+  "artifactType": {
+    "type": "APK",
+    "kind": "Directory"
+  },
+  "applicationId": "${appId}",
+  "variantName": "debug",
+  "elements": [
+    {
+      "type": "SINGLE",
+      "filters": [],
+      "attributes": [],
+      "versionCode": 1,
+      "versionName": "1.0",
+      "outputFile": "${apkName}"
+    }
+  ],
+  "elementType": "File"
+}
+""")
+        pw.flush()
+        pw.close()
+    }
+
+    void configure(Project prj, File apk, SigningConfig signingConfig, int minSdkVersion, HostExtension hostExtension, String appId ) {
         this.project = prj
         this.apkToUpdate = apk
+        this.appId = appId
         this.signingConfig = signingConfig
         this.minSdkVersion = minSdkVersion
         this.hostExtension = hostExtension
-        this.hostLibDir = new File(project.buildDir, "debughelp/hostLibDir")
+        this.hostNativeLibDir = new File(project.buildDir, "debughelp/hostNativeLibDir")
         String keyStore = signingConfig.storeFile.path
         String storePass = signingConfig.storePassword
         String alias = signingConfig.keyAlias

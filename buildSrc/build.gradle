@@ -1,6 +1,6 @@
 plugins {
     id 'groovy'
-    id 'org.jetbrains.kotlin.jvm' version '1.2.51'
+    id 'org.jetbrains.kotlin.jvm' version '1.3.72'
     id 'java'
 }
 
@@ -15,8 +15,20 @@ dependencies {
 }
 
 dependencies {
-    compile 'com.android.tools.build:gradle:3.6.0'
-    //compile 'com.android.tools.build:builder:3.1.0'
+    implementation 'com.android.tools.build:gradle:4.1.0'
+    /*
+    implementation 'com.android.tools.build:builder:7.0.3'
+    compile 'com.android.tools:sdk-common:27.1.0'
+    compile "com.google.guava:guava:28.1-jre"
+    compile "com.android.tools:annotations:27.1.0"
+    compile "it.unimi.dsi:fastutil:7.2.0"
+    compile "com.google.code.gson:gson:2.8.5"
+    compile "net.sf.jopt-simple:jopt-simple:4.9"
+    compile "org.ow2.asm:asm-tree:7.0"
+    compile "org.ow2.asm:asm-commons:7.0"
+    compile "org.ow2.asm:asm-util:7.0"
+    compile 'commons-io:commons-io:2.4'
+     */
 }
 
 compileGroovy {
@@ -64,10 +76,13 @@ public final class BuildConfig {
 
 tasks.withType(JavaCompile) { compileTask ->
     compileTask.dependsOn generateBuildConfig
+    sourceCompatibility = '1.8'
+    targetCompatibility = '1.8'
 }
 
 tasks.withType(GroovyCompile) {
-    sourceCompatibility = '1.7'
-    targetCompatibility = '1.7'
+    sourceCompatibility = '1.8'
+    targetCompatibility = '1.8'
 }
+
 
