@@ -88,7 +88,7 @@ class HostPlugin implements Plugin<Project> {
                     task.configure(variant, hostExtension, customTransform)
                 })
                 //Delay to configure collectSubPrjClassTask classDirs, because some sub project will resolve later than host project
-                variant.preBuild.doFirst {
+                variant.preBuild.finalizedBy {
                     List<File> classDirs = []
                     DependencyUtils.collectDependencyProjectClassesDirs(project, variant.name, classDirs)
                     collectSubPrjClassTask.classesDirs = project.files(classDirs)
