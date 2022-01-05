@@ -139,6 +139,9 @@ class DebugHelper implements Plugin<DefaultSettings> {
             p.debughelp.hostApk = mHostApk
             p.debughelp.updateJavaClass = (mHostInfo.mUpdateJavaClass && mHostApk != null)
             p.debughelp.modifyApkDebuggable = (mHostInfo.mModifyApkDebuggable && mHostApk != null)
+            if (mHostInfo.mExtraFilesToUpdate != null) {
+                p.debughelp.extraFilesToUpdate = mHostInfo.mExtraFilesToUpdate
+            }
         }
     }
 
@@ -370,6 +373,9 @@ include \$(BUILD_SHARED_LIBRARY)
         if (settings.hasProperty("supportJava8")) {
             hostInfo.mSupportJava8 = settings.supportJava8
         }
+        if (settings.hasProperty("extraFilesToUpdate")) {
+            hostInfo.mExtraFilesToUpdate = settings.extraFilesToUpdate
+        }
         return hostInfo
     }
 
@@ -477,6 +483,7 @@ include \$(BUILD_SHARED_LIBRARY)
         boolean mModifyApkDebuggable = true
         String mExcludeSo
         boolean mSupportJava8 = true
+        Map<File, String> mExtraFilesToUpdate
 
         void update(HostInfo hostInfo) {
             if (mHostPackageName == null && hostInfo.mHostPackageName != null) {
@@ -502,6 +509,9 @@ include \$(BUILD_SHARED_LIBRARY)
             }
             if (mExcludeSo == null && hostInfo.mExcludeSo != null) {
                 mExcludeSo = hostInfo.mExcludeSo
+            }
+            if (mExtraFilesToUpdate == null && hostInfo.mExtraFilesToUpdate != null) {
+                mExtraFilesToUpdate = hostInfo.mExtraFilesToUpdate
             }
         }
     }

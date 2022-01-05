@@ -128,6 +128,8 @@ class ApkUpdateTask extends DefaultTask {
             }
         }
 
+        filesToUpdate.putAll(hostExtension.extraFilesToUpdate)
+
         ApkUpdater apkUpdater
         apkUpdater = new ApkUpdater(apkToUpdate, signingConfig, minSdkVersion, true)
         apkUpdater.updateFiles(filesToUpdate)

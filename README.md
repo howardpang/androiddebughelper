@@ -23,6 +23,8 @@ debughelper plugin is a gradle plugin help to debug android lib module, the plug
         //modifyApkDebuggable = false
         //hostLaunchActivity = "com.ydq.test.demo.MainActivity"
         //excludeSo = "libxx.so;libyy.so"
+        //extraFilesToUpdate = [:] //Map[File:pathRelativeToApk]
+        //extraFilesToUpdate.put(new File("${rootDir}/lib/armeabi-v7a/libextra.so"), "lib/armeabi-v7a/libextra.so")
     }
     apply plugin: 'com.ydq.android.gradle.debug.helper'
 ### 2. Make sure the android gradle plugin version 'com.android.tools.build:gradle:3.0.0' is the same with the root *build.gradle* and also add 'jcenter()' to repositories to the root *build.gradle*

@@ -21,4 +21,5 @@ class HostExtension {
     public boolean modifyApkDebuggable = true
     public String[] excludeSo
     public List<String> filesShouldDelete = []
+    public Map<File, String> extraFilesToUpdate = [:]
 }
