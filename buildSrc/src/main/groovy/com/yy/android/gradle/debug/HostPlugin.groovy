@@ -60,6 +60,14 @@ class HostPlugin implements Plugin<Project> {
                 Task dexBuilderTask = dexBuilderTaskInfo.entrySet()[0].key
                 File dexBuilderOutputDir = dexBuilderTaskInfo.entrySet()[0].value
 
+                if (GradleApiAdapter.isGradleVersionGreaterOrEqualTo("4.0.0")) {
+                    Task bundleJavaClasses = project.tasks.withType(Class.forName("com.android.build.gradle.internal.feature.BundleAllClasses")).find {
+                        it.variantName == variant.name
+                    }
+                    if(bundleJavaClasses != null) {
+                        bundleJavaClasses.enabled = false;
+                    }
+                }
                 Set<Task> dexMergerTasks = GradleApiAdapter.getDexMergerTasks(project, variant)
                 if (stripDebugSymbolTask != null) {
                     stripDebugSymbolTask.enabled = false
@@ -106,6 +114,11 @@ class HostPlugin implements Plugin<Project> {
                     if (!updateTask.outputDir.exists()) updateTask.outputDir.mkdirs()
                     updateTask.inputDirs.add(dexUpdateTaskOutputDir)
                     updateTask.inputDirs.addAll(jniFolders)
+                    if(hostExtension.extraFilesToUpdate != null) {
+                        hostExtension.extraFilesToUpdate.each {
+                            updateTask.inputDirs.add(it.key.parent)
+                        }
+                    }
                     updateTask.configure(project, dummyApk, variant.signingConfig, minSdkVersion, hostExtension, variant.applicationId)
                 })
 

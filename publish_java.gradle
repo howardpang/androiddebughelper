@@ -1,4 +1,4 @@
-apply plugin: 'maven'
+//apply plugin: 'maven'
 apply plugin: 'maven-publish'
 apply plugin: 'com.jfrog.bintray'
 
@@ -31,6 +31,7 @@ group = 'com.ydq.android.gradle.build.tool'
 task srcJar(type: Jar) {
     classifier 'sources'
     from new File("${rootDir}/buildSrc/src")
+    destinationDirectory = layout.buildDirectory.dir("libs")
 }
 
 publishing {

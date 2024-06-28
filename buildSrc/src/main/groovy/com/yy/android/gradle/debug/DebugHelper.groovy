@@ -286,7 +286,7 @@ android {
         if (hostInfo.mHostLaunchActivity != null) {
             pw.println("""
     <application>
-        <activity android:name="${hostInfo.mHostLaunchActivity}">
+        <activity android:name="${hostInfo.mHostLaunchActivity}" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
