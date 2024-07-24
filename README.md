@@ -7,13 +7,13 @@ debughelper plugin is a gradle plugin help to debug android lib module, the plug
 ### 1.Edit your root *setting.gradle* file, add these code to the **end of the file**
     buildscript {
         repositories {
-            jcenter()
             google()
+            mavenCentral()
         }
         dependencies {
             classpath 'com.android.tools.build:gradle:3.0.0'
             //Add debughelper dependency
-            classpath 'com.ydq.android.gradle.build.tool:debughelper:1.0.4'
+            classpath 'io.github.howardpang:debughelper:1.0.5'
         }
     }
     ext {

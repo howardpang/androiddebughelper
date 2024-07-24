@@ -4,6 +4,11 @@ plugins {
     id 'java'
 }
 
+javadoc {
+    source = sourceSets.main.allJava
+    classpath = configurations.implementation
+}
+
 repositories {
     mavenCentral()
     google()
@@ -85,4 +90,5 @@ tasks.withType(GroovyCompile) {
     targetCompatibility = '1.8'
 }
 
+compileGroovy.finalizedBy groovydoc
 
